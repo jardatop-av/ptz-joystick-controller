@@ -6,6 +6,7 @@ from ..config import ControllerConfig
 from ..event_bus import EventBus
 from ..models.commands import Command, CommandError, CommandType, EventType
 from ..models.joystick import ButtonAction
+from ..models.joystick_input import ButtonEvent
 
 
 @dataclass
@@ -39,3 +40,8 @@ class JoystickActionDispatcher:
         command = self.command_for_button(button_name)
         self.event_bus.publish(EventType.COMMAND_DISPATCHED, {"command": command})
         return command
+
+    def dispatch_button_event(self, event: ButtonEvent) -> Command | None:
+        if not event.pressed:
+            return None
+        return self.dispatch_button(event.button_name)
