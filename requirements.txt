@@ -1,2 +1,6 @@
 PyYAML>=6.0
 pydantic>=2.0
+
+# Optional runtime joystick backends:
+# evdev>=1.7      # Linux real USB joystick support
+# pygame>=2.5     # Windows fallback joystick support

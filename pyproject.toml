@@ -11,6 +11,8 @@ dependencies = ["PyYAML>=6.0", "pydantic>=2.0"]
 
 [project.optional-dependencies]
 test = ["pytest>=8.0"]
+linux-joystick = ["evdev>=1.7"]
+windows-joystick = ["pygame>=2.5"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
