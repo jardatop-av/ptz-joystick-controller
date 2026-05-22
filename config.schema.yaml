@@ -1,0 +1,466 @@
+$defs:
+  AppConfig:
+    properties:
+      name:
+        default: PTZ Joystick Controller
+        title: Name
+        type: string
+      device_name:
+        default: ptz-controller
+        title: Device Name
+        type: string
+      log_level:
+        default: info
+        title: Log Level
+        type: string
+      web_port:
+        default: 8080
+        maximum: 65535
+        minimum: 1
+        title: Web Port
+        type: integer
+      auto_load_last_preset:
+        default: true
+        title: Auto Load Last Preset
+        type: boolean
+    title: AppConfig
+    type: object
+  AxisInvertConfig:
+    properties:
+      pan:
+        default: false
+        title: Pan
+        type: boolean
+      tilt:
+        default: false
+        title: Tilt
+        type: boolean
+      zoom:
+        default: false
+        title: Zoom
+        type: boolean
+    title: AxisInvertConfig
+    type: object
+  ButtonAction:
+    enum:
+    - none
+    - cut
+    - auto
+    - copy_program_to_preview
+    - preview_source
+    title: ButtonAction
+    type: string
+  ButtonMapping:
+    properties:
+      action:
+        $ref: '#/$defs/ButtonAction'
+        default: none
+      source_id:
+        anyOf:
+        - type: string
+        - type: 'null'
+        default: null
+        title: Source Id
+    title: ButtonMapping
+    type: object
+  DeadzoneConfig:
+    properties:
+      pan:
+        default: 0.08
+        maximum: 1.0
+        minimum: 0.0
+        title: Pan
+        type: number
+      tilt:
+        default: 0.08
+        maximum: 1.0
+        minimum: 0.0
+        title: Tilt
+        type: number
+      zoom:
+        default: 0.1
+        maximum: 1.0
+        minimum: 0.0
+        title: Zoom
+        type: number
+    title: DeadzoneConfig
+    type: object
+  DiscoveryConfig:
+    properties:
+      enabled:
+        default: true
+        title: Enabled
+        type: boolean
+      ndi:
+        default: true
+        title: Ndi
+        type: boolean
+      atem:
+        default: true
+        title: Atem
+        type: boolean
+      vmix:
+        default: true
+        title: Vmix
+        type: boolean
+      osee:
+        default: true
+        title: Osee
+        type: boolean
+    title: DiscoveryConfig
+    type: object
+  HatConfig:
+    properties:
+      fine_pan_speed:
+        default: 2
+        minimum: 0
+        title: Fine Pan Speed
+        type: integer
+      fine_tilt_speed:
+        default: 2
+        minimum: 0
+        title: Fine Tilt Speed
+        type: integer
+    title: HatConfig
+    type: object
+  JoystickConfig:
+    properties:
+      type:
+        default: logitech_extreme_3d_pro
+        title: Type
+        type: string
+      device_path:
+        default: auto
+        title: Device Path
+        type: string
+      deadzone:
+        $ref: '#/$defs/DeadzoneConfig'
+      invert:
+        $ref: '#/$defs/AxisInvertConfig'
+      throttle:
+        $ref: '#/$defs/ThrottleConfig'
+      hat:
+        $ref: '#/$defs/HatConfig'
+      buttons:
+        additionalProperties:
+          $ref: '#/$defs/ButtonMapping'
+        title: Buttons
+        type: object
+    title: JoystickConfig
+    type: object
+  NetworkConfig:
+    properties:
+      management_enabled:
+        default: true
+        title: Management Enabled
+        type: boolean
+      interface:
+        default: eth0
+        title: Interface
+        type: string
+      mode:
+        default: dhcp
+        title: Mode
+        type: string
+      static:
+        $ref: '#/$defs/StaticNetworkConfig'
+      safe_rollback:
+        $ref: '#/$defs/SafeRollbackConfig'
+    title: NetworkConfig
+    type: object
+  PtzCamera:
+    properties:
+      id:
+        minLength: 1
+        title: Id
+        type: string
+      name:
+        minLength: 1
+        title: Name
+        type: string
+      host:
+        anyOf:
+        - type: string
+        - type: 'null'
+        default: null
+        title: Host
+      port:
+        default: 52381
+        maximum: 65535
+        minimum: 1
+        title: Port
+        type: integer
+      visca_id:
+        default: 1
+        maximum: 7
+        minimum: 1
+        title: Visca Id
+        type: integer
+      enabled:
+        default: true
+        title: Enabled
+        type: boolean
+      invert:
+        $ref: '#/$defs/AxisInvertConfig'
+      speed:
+        $ref: '#/$defs/PtzSpeedConfig'
+    required:
+    - id
+    - name
+    title: PtzCamera
+    type: object
+  PtzConfig:
+    properties:
+      protocol:
+        default: visca_over_ip
+        title: Protocol
+        type: string
+      default_port:
+        default: 52381
+        maximum: 65535
+        minimum: 1
+        title: Default Port
+        type: integer
+      stop_on_switch:
+        default: true
+        title: Stop On Switch
+        type: boolean
+      stop_watchdog:
+        $ref: '#/$defs/PtzStopWatchdogConfig'
+      cameras:
+        default: []
+        items:
+          $ref: '#/$defs/PtzCamera'
+        title: Cameras
+        type: array
+    title: PtzConfig
+    type: object
+  PtzSpeedConfig:
+    properties:
+      pan_min:
+        default: 1
+        minimum: 0
+        title: Pan Min
+        type: integer
+      pan_max:
+        default: 24
+        minimum: 0
+        title: Pan Max
+        type: integer
+      tilt_min:
+        default: 1
+        minimum: 0
+        title: Tilt Min
+        type: integer
+      tilt_max:
+        default: 20
+        minimum: 0
+        title: Tilt Max
+        type: integer
+      zoom_min:
+        default: 1
+        minimum: 0
+        title: Zoom Min
+        type: integer
+      zoom_max:
+        default: 7
+        minimum: 0
+        title: Zoom Max
+        type: integer
+    title: PtzSpeedConfig
+    type: object
+  PtzStopWatchdogConfig:
+    properties:
+      enabled:
+        default: true
+        title: Enabled
+        type: boolean
+      timeout_ms:
+        default: 500
+        minimum: 50
+        title: Timeout Ms
+        type: integer
+    title: PtzStopWatchdogConfig
+    type: object
+  ReconnectConfig:
+    properties:
+      enabled:
+        default: true
+        title: Enabled
+        type: boolean
+      interval_seconds:
+        default: 3
+        minimum: 1
+        title: Interval Seconds
+        type: integer
+      max_backoff_seconds:
+        default: 30
+        minimum: 1
+        title: Max Backoff Seconds
+        type: integer
+    title: ReconnectConfig
+    type: object
+  SafeRollbackConfig:
+    properties:
+      enabled:
+        default: false
+        title: Enabled
+        type: boolean
+      timeout_seconds:
+        default: 120
+        minimum: 10
+        title: Timeout Seconds
+        type: integer
+    title: SafeRollbackConfig
+    type: object
+  SourceMap:
+    properties:
+      available_mode:
+        default: auto
+        title: Available Mode
+        type: string
+      mappings:
+        default: []
+        items:
+          $ref: '#/$defs/SourceMapping'
+        title: Mappings
+        type: array
+    title: SourceMap
+    type: object
+  SourceMapping:
+    properties:
+      source_id:
+        minLength: 1
+        title: Source Id
+        type: string
+      display_name:
+        anyOf:
+        - type: string
+        - type: 'null'
+        default: null
+        title: Display Name
+      ptz_camera_id:
+        anyOf:
+        - type: string
+        - type: 'null'
+        default: null
+        title: Ptz Camera Id
+    required:
+    - source_id
+    title: SourceMapping
+    type: object
+  StaticNetworkConfig:
+    properties:
+      address:
+        anyOf:
+        - type: string
+        - type: 'null'
+        default: null
+        title: Address
+      netmask:
+        anyOf:
+        - type: string
+        - type: 'null'
+        default: null
+        title: Netmask
+      gateway:
+        anyOf:
+        - type: string
+        - type: 'null'
+        default: null
+        title: Gateway
+      dns:
+        items:
+          type: string
+        title: Dns
+        type: array
+    title: StaticNetworkConfig
+    type: object
+  SwitcherConfig:
+    properties:
+      type:
+        title: Type
+        type: string
+      host:
+        anyOf:
+        - type: string
+        - type: 'null'
+        default: null
+        title: Host
+      port:
+        anyOf:
+        - maximum: 65535
+          minimum: 1
+          type: integer
+        - type: 'null'
+        default: null
+        title: Port
+      reconnect:
+        $ref: '#/$defs/ReconnectConfig'
+    required:
+    - type
+    title: SwitcherConfig
+    type: object
+  ThrottleConfig:
+    properties:
+      min_multiplier:
+        default: 0.2
+        maximum: 1.0
+        minimum: 0.0
+        title: Min Multiplier
+        type: number
+      max_multiplier:
+        default: 1.0
+        maximum: 1.0
+        minimum: 0.0
+        title: Max Multiplier
+        type: number
+    title: ThrottleConfig
+    type: object
+  WebUiConfig:
+    properties:
+      enabled:
+        default: true
+        title: Enabled
+        type: boolean
+      listen_host:
+        default: 0.0.0.0
+        title: Listen Host
+        type: string
+      listen_port:
+        default: 8080
+        maximum: 65535
+        minimum: 1
+        title: Listen Port
+        type: integer
+      websocket_updates:
+        default: true
+        title: Websocket Updates
+        type: boolean
+      emergency_controls:
+        default: true
+        title: Emergency Controls
+        type: boolean
+    title: WebUiConfig
+    type: object
+properties:
+  app:
+    $ref: '#/$defs/AppConfig'
+  switcher:
+    $ref: '#/$defs/SwitcherConfig'
+  sources:
+    $ref: '#/$defs/SourceMap'
+  ptz:
+    $ref: '#/$defs/PtzConfig'
+  joystick:
+    $ref: '#/$defs/JoystickConfig'
+  network:
+    $ref: '#/$defs/NetworkConfig'
+  discovery:
+    $ref: '#/$defs/DiscoveryConfig'
+  webui:
+    $ref: '#/$defs/WebUiConfig'
+required:
+- switcher
+title: ControllerConfig
+type: object

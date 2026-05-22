@@ -1,0 +1,126 @@
+app:
+  name: PTZ Joystick Controller
+  device_name: ptz-controller-01
+  log_level: info
+  web_port: 8080
+  auto_load_last_preset: true
+
+switcher:
+  type: osee_gostream_duet
+  host: null
+  port: null
+  reconnect:
+    enabled: true
+    interval_seconds: 3
+    max_backoff_seconds: 30
+
+sources:
+  available_mode: auto
+  mappings:
+    - source_id: CH1
+      display_name: Camera 1
+      ptz_camera_id: cam1
+    - source_id: CH2
+      display_name: Camera 2
+      ptz_camera_id: cam2
+    - source_id: MP1
+      display_name: Media Player 1
+      ptz_camera_id: null
+
+ptz:
+  protocol: visca_over_ip
+  default_port: 52381
+  stop_on_switch: true
+  stop_watchdog:
+    enabled: true
+    timeout_ms: 500
+  cameras:
+    - id: cam1
+      name: PTZ Camera 1
+      host: null
+      port: 52381
+      visca_id: 1
+      enabled: true
+      invert:
+        pan: false
+        tilt: false
+        zoom: false
+      speed:
+        pan_min: 1
+        pan_max: 24
+        tilt_min: 1
+        tilt_max: 20
+        zoom_min: 1
+        zoom_max: 7
+    - id: cam2
+      name: PTZ Camera 2
+      host: null
+      port: 52381
+      visca_id: 1
+      enabled: true
+      invert:
+        pan: false
+        tilt: false
+        zoom: false
+      speed:
+        pan_min: 1
+        pan_max: 24
+        tilt_min: 1
+        tilt_max: 20
+        zoom_min: 1
+        zoom_max: 7
+
+joystick:
+  type: logitech_extreme_3d_pro
+  device_path: auto
+  deadzone:
+    pan: 0.08
+    tilt: 0.08
+    zoom: 0.10
+  invert:
+    pan: false
+    tilt: true
+    zoom: false
+  throttle:
+    min_multiplier: 0.20
+    max_multiplier: 1.00
+  hat:
+    fine_pan_speed: 2
+    fine_tilt_speed: 2
+  buttons:
+    trigger:
+      action: cut
+    thumb:
+      action: copy_program_to_preview
+    button_3:
+      action: preview_source
+      source_id: CH1
+    button_4:
+      action: none
+
+network:
+  management_enabled: false
+  interface: eth0
+  mode: dhcp
+  static:
+    address: null
+    netmask: null
+    gateway: null
+    dns: []
+  safe_rollback:
+    enabled: false
+    timeout_seconds: 120
+
+discovery:
+  enabled: false
+  ndi: false
+  atem: false
+  vmix: false
+  osee: false
+
+webui:
+  enabled: false
+  listen_host: 0.0.0.0
+  listen_port: 8080
+  websocket_updates: false
+  emergency_controls: false
