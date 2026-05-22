@@ -180,3 +180,65 @@ def test_switcher_health_monitor_reports_poll_failure_and_reconnect_manager_reco
     assert result.status.state == SwitcherConnectionState.ERROR
     assert recovered
     assert switcher.is_connected()
+
+
+def test_real_vmix_layer_poll_program_and_preview_helpers() -> None:
+    transport = MockHttpTransport([
+        ok("<vmix><active>4</active><preview>5</preview></vmix>"),
+        ok("<vmix><active>6</active><preview>7</preview></vmix>"),
+    ])
+    switcher = VmixSwitcher(HttpClient("http://vmix.local:8088", transport=transport))
+
+    assert switcher.poll_program() == "Input 4"
+    assert switcher.poll_preview() == "Input 7"
+    assert transport.requests[0][1] == "http://vmix.local:8088/api"
+    assert transport.requests[1][1] == "http://vmix.local:8088/api"
+
+
+def test_vmix_fade_command_uses_http_api() -> None:
+    transport = MockHttpTransport([ok()])
+    switcher = VmixSwitcher(HttpClient("http://127.0.0.1:8088", transport=transport))
+    switcher.program_source_id = "Input 1"
+    switcher.preview_source_id = "Input 2"
+
+    switcher.fade()
+
+    assert "Function=Fade" in transport.requests[0][1]
+    assert switcher.transition_log == ["fade"]
+    assert switcher.get_program_source() == "Input 2"
+    assert switcher.get_preview_source() == "Input 1"
+
+
+def test_vmix_safe_connect_without_available_instance() -> None:
+    switcher = VmixSwitcher(
+        HttpClient("http://127.0.0.1:8088", retries=0, transport=MockHttpTransport([HttpClientError("connection refused")]))
+    )
+
+    switcher.connect()
+
+    assert not switcher.is_connected()
+    assert switcher.get_status().state == SwitcherConnectionState.ERROR
+    assert "connection refused" in (switcher.get_status().message or "")
+
+
+def test_vmix_timeout_failure_is_reported_in_health_state() -> None:
+    switcher = VmixSwitcher(
+        HttpClient("http://127.0.0.1:8088", retries=0, transport=MockHttpTransport([TimeoutError("timed out")]))
+    )
+
+    result = SwitcherHealthMonitor(switcher).check()
+
+    assert not result.healthy
+    assert result.status.state == SwitcherConnectionState.ERROR
+    assert result.error is not None
+
+
+def test_http_debug_logging_records_request_and_response(caplog: pytest.LogCaptureFixture) -> None:
+    transport = MockHttpTransport([ok("<vmix><active>1</active><preview>2</preview></vmix>")])
+    client = HttpClient("http://127.0.0.1:8088", transport=transport, debug=True)
+
+    with caplog.at_level("DEBUG"):
+        client.get("/api")
+
+    assert "HTTP request GET http://127.0.0.1:8088/api" in caplog.text
+    assert "HTTP response GET http://127.0.0.1:8088/api" in caplog.text

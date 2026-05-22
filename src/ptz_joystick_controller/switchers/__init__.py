@@ -7,7 +7,7 @@ from .health import HealthCheckResult, ReconnectPolicy, SwitcherHealthMonitor, S
 from .http_client import HttpClient, HttpClientError, HttpResponse, HttpTransport
 from .osee_gostream_deck import OseeGoStreamDeckSwitcher
 from .osee_gostream_duet import OseeGoStreamDuetSwitcher
-from .vmix import VmixSwitcher
+from .vmix import VmixApiClient, VmixApiError, VmixState, VmixSwitcher
 
 __all__ = [
     "AbstractSwitcher",
@@ -24,6 +24,9 @@ __all__ = [
     "ReconnectPolicy",
     "SwitcherHealthMonitor",
     "SwitcherReconnectManager",
+    "VmixApiClient",
+    "VmixApiError",
+    "VmixState",
     "VmixSwitcher",
     "create_offline_switcher",
     "create_switcher",
