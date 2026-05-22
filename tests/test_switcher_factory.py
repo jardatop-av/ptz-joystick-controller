@@ -55,10 +55,10 @@ def test_switcher_factory_returns_offline_fake_switcher() -> None:
     assert switcher.is_connected()
 
 
-def test_real_switcher_factory_mode_is_not_implemented() -> None:
+def test_real_vmix_factory_requires_host() -> None:
     config = parse_config({"switcher": {"type": "vmix", "host": None}})
 
-    with pytest.raises(NotImplementedError):
+    with pytest.raises(ValueError):
         factory_create_switcher(config.switcher, offline=False)
 
 
