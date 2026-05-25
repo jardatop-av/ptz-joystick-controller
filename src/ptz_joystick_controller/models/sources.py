@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable, Iterable
 from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -99,16 +100,51 @@ class UnsupportedSourceError(ValueError):
 
 
 class SourceSelector:
-    def __init__(self, source_map: SourceMap) -> None:
+    """Validate switcher sources separately from optional PTZ mappings.
+
+    ``SourceMap.mappings`` describes only configured PTZ/source associations; it
+    is not the complete list of inputs available on a switcher. The selector can
+    therefore also receive a switcher capability source list. A valid switcher
+    source with no mapping returns a synthetic ``SourceMapping`` with
+    ``ptz_camera_id=None``.
+    """
+
+    def __init__(
+        self,
+        source_map: SourceMap,
+        *,
+        supported_source_ids: Iterable[str] = (),
+        normalize_source_id: Callable[[str], str | None] | None = None,
+    ) -> None:
         self.source_map = source_map
+        self._normalize_source_id = normalize_source_id or (lambda value: value.strip())
+        configured_ids = source_map.source_ids()
+        self._supported_source_ids = configured_ids | {source_id for source_id in supported_source_ids if source_id}
+
+    def normalize(self, source_id: str) -> str:
+        normalized = self._normalize_source_id(source_id)
+        if normalized is None:
+            raise UnsupportedSourceError(source_id)
+        return normalized
+
+    def is_supported_source(self, source_id: str) -> bool:
+        try:
+            normalized = self.normalize(source_id)
+        except UnsupportedSourceError:
+            return False
+        return normalized in self._supported_source_ids
 
     def require_supported_preview_source(self, source_id: str) -> SourceMapping:
-        mapping = self.source_map.mapping_for_source(source_id)
-        if mapping is None:
-            raise UnsupportedSourceError(source_id)
-        return mapping
+        normalized = self.normalize(source_id)
+        mapping = self.source_map.mapping_for_source(normalized)
+        if mapping is not None:
+            return mapping
+        if normalized in self._supported_source_ids:
+            return SourceMapping(source_id=normalized, display_name=normalized, ptz_camera_id=None)
+        raise UnsupportedSourceError(source_id)
 
     def active_ptz_for_preview(self, preview_source_id: str | None) -> str | None:
         if preview_source_id is None:
             return None
-        return self.source_map.camera_for_source(preview_source_id)
+        mapping = self.require_supported_preview_source(preview_source_id)
+        return mapping.ptz_camera_id

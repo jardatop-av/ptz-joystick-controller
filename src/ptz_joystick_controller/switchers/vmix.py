@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 import logging
 import xml.etree.ElementTree as ET
 
+from ..compat.vmix_compat import normalize_vmix_source_id, vmix_source_to_input_number
 from ..models.sources import Source, UnsupportedSourceError
 from ..models.switcher import SwitcherCapabilities, SwitcherConnectionState, SwitcherStatus, SwitcherType
 from ..models.tally import SourceTally, TallyState
@@ -16,20 +17,11 @@ logger = logging.getLogger(__name__)
 
 
 def _vmix_input_id(source_id: str) -> str:
-    if source_id.startswith("Input "):
-        return source_id.split(" ", 1)[1]
-    return source_id
+    return vmix_source_to_input_number(source_id)
 
 
 def _vmix_source_id(native_id: str | int | None) -> str | None:
-    if native_id is None:
-        return None
-    text = str(native_id).strip()
-    if not text:
-        return None
-    if text.startswith("Input "):
-        return text
-    return f"Input {text}"
+    return normalize_vmix_source_id(native_id)
 
 
 @dataclass(frozen=True)
@@ -126,9 +118,11 @@ class VmixSwitcher(AbstractSwitcher):
     def get_available_sources(self) -> tuple[Source, ...]:
         return get_available_sources(SwitcherType.VMIX)
 
-    def _require_source(self, source_id: str) -> None:
-        if source_id not in {source.id for source in self.get_available_sources()}:
+    def _require_source(self, source_id: str) -> str:
+        normalized = normalize_vmix_source_id(source_id)
+        if normalized not in {source.id for source in self.get_available_sources()}:
             raise UnsupportedSourceError(source_id)
+        return normalized
 
     def poll(self) -> None:
         try:
@@ -157,9 +151,9 @@ class VmixSwitcher(AbstractSwitcher):
         return self.preview_source_id
 
     def set_preview_source(self, source_id: str) -> None:
-        self._require_source(source_id)
-        self.api.preview_input(source_id)
-        self.preview_source_id = source_id
+        normalized_source_id = self._require_source(source_id)
+        self.api.preview_input(normalized_source_id)
+        self.preview_source_id = normalized_source_id
         self.connected = True
         self.last_error = None
 

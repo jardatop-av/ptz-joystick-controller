@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 
 from ..app_state import AppState
@@ -7,6 +8,8 @@ from ..event_bus import EventBus
 from ..models.commands import EventType
 from ..models.sources import UnsupportedSourceError
 from .ptz_control import PtzControlStateMachine
+
+LOGGER = logging.getLogger(__name__)
 
 
 @dataclass
@@ -21,30 +24,34 @@ class PreviewProgramStateMachine:
         return self.ptz_control
 
     def set_preview(self, source_id: str | None) -> None:
+        normalized_source_id = source_id
         if source_id is not None:
             try:
-                self.state.require_supported_source(source_id)
+                normalized_source_id = self.state.require_supported_source(source_id)
             except UnsupportedSourceError:
+                LOGGER.warning("Unsupported source ignored: %s", source_id)
                 self.event_bus.publish(EventType.UNSUPPORTED_SOURCE, {"source_id": source_id})
                 raise
         previous = self.state.preview_source_id
-        self.state.preview_source_id = source_id
+        self.state.preview_source_id = normalized_source_id
         active_ptz = self._ptz().recompute_active_ptz()
         self.event_bus.publish(
             EventType.PREVIEW_CHANGED,
-            {"old_source_id": previous, "source_id": source_id, "active_ptz_camera_id": active_ptz},
+            {"old_source_id": previous, "source_id": normalized_source_id, "active_ptz_camera_id": active_ptz},
         )
 
     def set_program(self, source_id: str | None) -> None:
+        normalized_source_id = source_id
         if source_id is not None:
             try:
-                self.state.require_supported_source(source_id)
+                normalized_source_id = self.state.require_supported_source(source_id)
             except UnsupportedSourceError:
+                LOGGER.warning("Unsupported source ignored: %s", source_id)
                 self.event_bus.publish(EventType.UNSUPPORTED_SOURCE, {"source_id": source_id})
                 raise
         previous = self.state.program_source_id
-        self.state.program_source_id = source_id
-        self.event_bus.publish(EventType.PROGRAM_CHANGED, {"old_source_id": previous, "source_id": source_id})
+        self.state.program_source_id = normalized_source_id
+        self.event_bus.publish(EventType.PROGRAM_CHANGED, {"old_source_id": previous, "source_id": normalized_source_id})
 
     def copy_program_to_preview(self) -> None:
         self.set_preview(self.state.program_source_id)
