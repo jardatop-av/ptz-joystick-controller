@@ -30,7 +30,7 @@ class SwitcherCommandExecutor:
     ptz_control: PtzControlStateMachine
     dry_run: bool = False
 
-    def sync_from_switcher(self) -> None:
+    def sync_from_switcher(self, *, stop_on_source_change: bool = True) -> None:
         """Refresh local program/preview state from the current switcher object.
 
         Network failures are handled by the backend. This method never raises for
@@ -58,7 +58,7 @@ class SwitcherCommandExecutor:
                 LOGGER.warning("Switcher reported unsupported program source %s; keeping previous state", exc.source_id)
         if preview != self.state.preview_source_id:
             try:
-                self.preview_program.set_preview(preview)
+                self.preview_program.set_preview(preview, stop_on_change=stop_on_source_change)
             except UnsupportedSourceError as exc:
                 self.state.last_error = str(exc)
                 LOGGER.warning("Switcher reported unsupported preview source %s; keeping previous state", exc.source_id)
@@ -121,14 +121,14 @@ class SwitcherCommandExecutor:
                 if self.state.config.ptz.stop_on_switch:
                     self.ptz_control.request_stop("before_cut")
                 self.switcher.cut()
-                self.sync_from_switcher()
+                self.sync_from_switcher(stop_on_source_change=False)
                 return True
 
             if command.type == CommandType.AUTO:
                 if self.state.config.ptz.stop_on_switch:
                     self.ptz_control.request_stop("before_auto")
                 self.switcher.auto()
-                self.sync_from_switcher()
+                self.sync_from_switcher(stop_on_source_change=False)
                 return True
 
             if command.type == CommandType.PTZ_STOP:

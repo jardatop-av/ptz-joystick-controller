@@ -23,7 +23,7 @@ class PreviewProgramStateMachine:
             self.ptz_control = PtzControlStateMachine(self.state, self.event_bus)
         return self.ptz_control
 
-    def set_preview(self, source_id: str | None) -> None:
+    def set_preview(self, source_id: str | None, *, stop_on_change: bool = True) -> None:
         normalized_source_id = source_id
         if source_id is not None:
             try:
@@ -34,7 +34,7 @@ class PreviewProgramStateMachine:
                 raise
         previous = self.state.preview_source_id
         self.state.preview_source_id = normalized_source_id
-        active_ptz = self._ptz().recompute_active_ptz()
+        active_ptz = self._ptz().recompute_active_ptz(stop_on_change=stop_on_change)
         self.event_bus.publish(
             EventType.PREVIEW_CHANGED,
             {"old_source_id": previous, "source_id": normalized_source_id, "active_ptz_camera_id": active_ptz},
@@ -72,7 +72,7 @@ class PreviewProgramStateMachine:
         old_preview = self.state.preview_source_id
         self.state.program_source_id = old_preview
         self.state.preview_source_id = old_program
-        active_ptz = self._ptz().recompute_active_ptz()
+        active_ptz = self._ptz().recompute_active_ptz(stop_on_change=False)
 
         self.event_bus.publish(EventType.PROGRAM_CHANGED, {"old_source_id": old_program, "source_id": old_preview})
         self.event_bus.publish(

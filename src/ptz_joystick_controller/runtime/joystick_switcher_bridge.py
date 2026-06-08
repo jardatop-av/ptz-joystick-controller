@@ -12,6 +12,7 @@ from ..state_machine.preview_program import PreviewProgramStateMachine
 from ..state_machine.ptz_control import PtzControlStateMachine
 from ..switchers.base import AbstractSwitcher
 from .switcher_executor import SwitcherCommandExecutor
+from .ptz_router import PtzRouter
 
 LOGGER = logging.getLogger(__name__)
 
@@ -44,12 +45,14 @@ class JoystickToSwitcherBridge:
     preview_program: PreviewProgramStateMachine = field(init=False)
     joystick_dispatcher: JoystickActionDispatcher = field(init=False)
     switcher_executor: SwitcherCommandExecutor = field(init=False)
+    ptz_router: PtzRouter = field(init=False)
 
     def __post_init__(self) -> None:
         self.state = AppState(config=self.config)
         self.ptz_control = PtzControlStateMachine(self.state, self.event_bus)
         self.preview_program = PreviewProgramStateMachine(self.state, self.event_bus, self.ptz_control)
         self.joystick_dispatcher = JoystickActionDispatcher(self.config, self.event_bus)
+        self.ptz_router = PtzRouter(self.state, self.event_bus)
         self.switcher_executor = SwitcherCommandExecutor(
             switcher=self.switcher,
             state=self.state,
@@ -100,6 +103,9 @@ class JoystickToSwitcherBridge:
 
         if snapshot is None:
             LOGGER.debug("Bridge poll: no joystick snapshot available")
+        else:
+            self.ptz_router.route_velocity(self.joystick_monitor.ptz_velocity(snapshot))
+            self.ptz_router.route_hat_step(self.joystick_monitor.hat_step(snapshot))
         return self.status()
 
     def status(self) -> JoystickToSwitcherBridgeStatus:

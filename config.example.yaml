@@ -7,7 +7,7 @@ app:
 
 switcher:
   type: vmix
-  host: 127.0.0.1
+  host: null
   port: 8088
   reconnect:
     enabled: true
@@ -18,16 +18,16 @@ sources:
   available_mode: auto
   mappings:
     - source_id: Input 1
-      display_name: vMix Input 1
+      display_name: Camera 1
       ptz_camera_id: cam1
     - source_id: Input 2
-      display_name: vMix Input 2
+      display_name: Camera 2
       ptz_camera_id: cam2
     - source_id: Input 3
-      display_name: vMix Input 3
+      display_name: Unmapped Input 3
       ptz_camera_id: null
     - source_id: Input 4
-      display_name: vMix Input 4
+      display_name: Unmapped Input 4
       ptz_camera_id: null
 
 ptz:
@@ -95,30 +95,30 @@ joystick:
       action: cut
     thumb:
       action: copy_program_to_preview
-
-    # horní tlačítka na hlavě joysticku
-    button_5:
-      action: preview_source
-      source_id: Input 1
     button_3:
       action: preview_source
-      source_id: Input 2
-    button_6:
-      action: preview_source
-      source_id: Input 3
+      source_id: Input 1
     button_4:
       action: preview_source
+      source_id: Input 2
+    button_5:
+      action: preview_source
+      source_id: Input 3
+    button_6:
+      action: preview_source
       source_id: Input 4
-
-    # základna 7–12 zatím vypnutá
     button_7:
-      action: none
+      action: preview_source
+      source_id: Input 1
     button_8:
-      action: none
+      action: preview_source
+      source_id: Input 2
     button_9:
-      action: none
+      action: preview_source
+      source_id: Input 3
     button_10:
-      action: none
+      action: preview_source
+      source_id: Input 4
     button_11:
       action: none
     button_12:

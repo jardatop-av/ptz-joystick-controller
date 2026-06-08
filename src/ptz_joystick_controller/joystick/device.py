@@ -3,7 +3,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from collections.abc import Iterable
 
-from ..models.joystick_input import ButtonEvent, JoystickSnapshot, RawAxisState
+from ..models.joystick_input import ButtonEvent, HatState, JoystickSnapshot, RawAxisState
 
 
 class JoystickInputProvider(ABC):
@@ -26,6 +26,9 @@ class FakeJoystickInputProvider(JoystickInputProvider):
 
     def set_snapshot(self, snapshot: JoystickSnapshot) -> None:
         self._snapshot = snapshot
+
+    def set_hat(self, hat: HatState) -> None:
+        self._snapshot = JoystickSnapshot(axes=self._snapshot.axes, hat=hat, pressed_buttons=self._snapshot.pressed_buttons)
 
     def press(self, button_name: str) -> None:
         self._events.append(ButtonEvent(button_name=button_name, pressed=True))
