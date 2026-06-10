@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from contextlib import AbstractContextManager
 from dataclasses import dataclass, field
+from types import TracebackType
 
 from ..models.ptz import PtzCamera
 from .builder import ViscaCommandBuilder
@@ -69,3 +71,31 @@ class CameraSession:
         self.state.zoom = 0.0
         self.state.last_command = f"stop:{reason}"
         return packet
+
+    def disconnect(self) -> None:
+        self.transport.disconnect()
+
+
+@dataclass
+class SafeStopCameraSession(AbstractContextManager[CameraSession]):
+    session: CameraSession
+    reason: str = "script_exit"
+    suppress_stop_errors: bool = True
+
+    def __enter__(self) -> CameraSession:
+        return self.session
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> bool | None:
+        try:
+            self.session.stop(reason=self.reason)
+        except Exception:
+            if not self.suppress_stop_errors:
+                raise
+        finally:
+            self.session.disconnect()
+        return None

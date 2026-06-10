@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from typing import Callable
 
 from ..app_state import AppState
 from ..event_bus import Event, EventBus
@@ -9,6 +10,7 @@ from ..models.commands import EventType
 from ..models.joystick_input import HatPtzStep, PtzVelocity
 from ..models.ptz import PtzCamera
 from ..ptz import CameraSession, FakeViscaTransport, ReconnectSafeTransport
+from ..ptz.transport import PtzTransport
 from ..ptz.commands import PanDirection, PanTiltCommand, TiltDirection
 
 LOGGER = logging.getLogger(__name__)
@@ -33,6 +35,7 @@ class PtzRouter:
     event_bus: EventBus
     sessions: dict[str, RoutedPtzSession] = field(init=False)
     command_log: list[str] = field(default_factory=list)
+    transport_factory: Callable[[PtzCamera], PtzTransport] | None = None
 
     def __post_init__(self) -> None:
         self.sessions = {
@@ -42,10 +45,10 @@ class PtzRouter:
         }
         self.event_bus.subscribe(EventType.PTZ_STOP_REQUESTED, self._on_stop_requested)
 
-    @staticmethod
-    def _build_session(camera: PtzCamera) -> RoutedPtzSession:
+    def _build_session(self, camera: PtzCamera) -> RoutedPtzSession:
         fake = FakeViscaTransport()
-        session = CameraSession(camera=camera, transport=ReconnectSafeTransport(fake))
+        transport = self.transport_factory(camera) if self.transport_factory is not None else ReconnectSafeTransport(fake)
+        session = CameraSession(camera=camera, transport=transport)
         return RoutedPtzSession(session=session, fake_transport=fake)
 
     @property
