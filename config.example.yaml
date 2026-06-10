@@ -40,7 +40,7 @@ ptz:
   cameras:
     - id: cam1
       name: PTZ Camera 1
-      host: null
+      host: 192.168.1.110
       port: 52381
       visca_id: 1
       enabled: true
@@ -60,7 +60,7 @@ ptz:
       host: null
       port: 52381
       visca_id: 1
-      enabled: true
+      enabled: false
       invert:
         pan: false
         tilt: false

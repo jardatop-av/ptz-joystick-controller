@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from typing import Callable
 
 from ..app_state import AppState
 from ..config import ControllerConfig
@@ -12,7 +13,9 @@ from ..state_machine.preview_program import PreviewProgramStateMachine
 from ..state_machine.ptz_control import PtzControlStateMachine
 from ..switchers.base import AbstractSwitcher
 from .switcher_executor import SwitcherCommandExecutor
-from .ptz_router import PtzRouter
+from .ptz_router import PtzRouter, PtzRouterDiagnostics
+from ..models.ptz import PtzCamera
+from ..ptz.transport import PtzTransport
 
 LOGGER = logging.getLogger(__name__)
 
@@ -24,6 +27,7 @@ class JoystickToSwitcherBridgeStatus:
     program_source_id: str | None
     preview_source_id: str | None
     active_ptz_camera_id: str | None
+    active_ptz_diagnostics: PtzRouterDiagnostics | None = None
     last_error: str | None = None
 
 
@@ -40,6 +44,7 @@ class JoystickToSwitcherBridge:
     switcher: AbstractSwitcher
     event_bus: EventBus = field(default_factory=EventBus)
     dry_run: bool = False
+    ptz_transport_factory: Callable[[PtzCamera], PtzTransport] | None = None
     state: AppState = field(init=False)
     ptz_control: PtzControlStateMachine = field(init=False)
     preview_program: PreviewProgramStateMachine = field(init=False)
@@ -52,7 +57,7 @@ class JoystickToSwitcherBridge:
         self.ptz_control = PtzControlStateMachine(self.state, self.event_bus)
         self.preview_program = PreviewProgramStateMachine(self.state, self.event_bus, self.ptz_control)
         self.joystick_dispatcher = JoystickActionDispatcher(self.config, self.event_bus)
-        self.ptz_router = PtzRouter(self.state, self.event_bus)
+        self.ptz_router = PtzRouter(self.state, self.event_bus, transport_factory=self.ptz_transport_factory)
         self.switcher_executor = SwitcherCommandExecutor(
             switcher=self.switcher,
             state=self.state,
@@ -115,17 +120,20 @@ class JoystickToSwitcherBridge:
             program_source_id=self.state.program_source_id,
             preview_source_id=self.state.preview_source_id,
             active_ptz_camera_id=self.state.active_ptz_camera_id,
+            active_ptz_diagnostics=self.ptz_router.diagnostics(),
             last_error=self.state.last_error,
         )
 
     def log_status(self) -> None:
         status = self.status()
         LOGGER.info(
-            "Bridge status: joystick=%s switcher=%s program=%s preview=%s active_ptz=%s error=%s",
+            "Bridge status: joystick=%s switcher=%s program=%s preview=%s active_ptz=%s moving=%s last_ptz=%s error=%s",
             status.joystick_connected,
             status.switcher_connected,
             status.program_source_id,
             status.preview_source_id,
             status.active_ptz_camera_id,
+            status.active_ptz_diagnostics.active_camera_moving if status.active_ptz_diagnostics else None,
+            status.active_ptz_diagnostics.active_camera_last_command if status.active_ptz_diagnostics else None,
             status.last_error,
         )

@@ -16,6 +16,15 @@ from ..ptz.commands import PanDirection, PanTiltCommand, TiltDirection
 LOGGER = logging.getLogger(__name__)
 
 
+@dataclass(frozen=True)
+class PtzRouterDiagnostics:
+    active_camera_id: str | None
+    active_preview_source_id: str | None
+    active_camera_moving: bool
+    active_camera_last_command: str | None
+    total_logged_commands: int
+
+
 @dataclass
 class RoutedPtzSession:
     session: CameraSession
@@ -36,6 +45,7 @@ class PtzRouter:
     sessions: dict[str, RoutedPtzSession] = field(init=False)
     command_log: list[str] = field(default_factory=list)
     transport_factory: Callable[[PtzCamera], PtzTransport] | None = None
+    _last_velocity_moving: bool = field(default=False, init=False)
 
     def __post_init__(self) -> None:
         self.sessions = {
@@ -77,14 +87,26 @@ class PtzRouter:
 
     def route_velocity(self, velocity: PtzVelocity) -> bool:
         session = self.active_session
+        moving = velocity.pan != 0.0 or velocity.tilt != 0.0 or velocity.zoom != 0.0
         if session is None:
-            LOGGER.debug(
-                "PTZ disabled: preview source %s has no PTZ mapping",
-                self.state.preview_source_id,
-            )
+            if moving:
+                LOGGER.debug(
+                    "PTZ disabled: preview source %s has no PTZ mapping",
+                    self.state.preview_source_id,
+                )
+            self._last_velocity_moving = False
             return False
+
+        if not moving:
+            if self._last_velocity_moving or session.state.moving:
+                self.stop(reason="joystick_centered", camera_id=session.camera.id)
+                self._last_velocity_moving = False
+                return True
+            return False
+
         session.pan_tilt_from_axes(velocity.pan, velocity.tilt)
         session.zoom_from_axis(velocity.zoom)
+        self._last_velocity_moving = True
         self.command_log.append(
             f"{session.camera.id}:axes pan={velocity.pan:.3f} tilt={velocity.tilt:.3f} zoom={velocity.zoom:.3f} speed={velocity.speed_multiplier:.3f}"
         )
@@ -152,9 +174,21 @@ class PtzRouter:
             LOGGER.warning("PTZ stop requested for unknown camera: %s", target_id)
             return False
         routed.session.stop(reason=reason)
+        if target_id == self.active_camera_id:
+            self._last_velocity_moving = False
         self.command_log.append(f"{target_id}:stop reason={reason}")
         LOGGER.info("PTZ STOP: camera=%s reason=%s", target_id, reason)
         return True
+
+    def diagnostics(self) -> PtzRouterDiagnostics:
+        session = self.active_session
+        return PtzRouterDiagnostics(
+            active_camera_id=self.active_camera_id,
+            active_preview_source_id=self.state.preview_source_id,
+            active_camera_moving=session.state.moving if session is not None else False,
+            active_camera_last_command=session.state.last_command if session is not None else None,
+            total_logged_commands=len(self.command_log),
+        )
 
     def _on_stop_requested(self, event: Event) -> None:
         self.stop(
