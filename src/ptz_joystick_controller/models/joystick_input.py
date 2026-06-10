@@ -78,6 +78,10 @@ class HatPtzStep:
     pan_speed: int = 0
     tilt_speed: int = 0
 
+    @property
+    def moving(self) -> bool:
+        return self.pan_speed != 0 or self.tilt_speed != 0
+
 
 @dataclass(frozen=True)
 class ButtonEvent:

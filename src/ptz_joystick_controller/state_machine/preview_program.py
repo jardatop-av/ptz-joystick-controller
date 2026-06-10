@@ -34,7 +34,7 @@ class PreviewProgramStateMachine:
                 raise
         previous = self.state.preview_source_id
         self.state.preview_source_id = normalized_source_id
-        active_ptz = self._ptz().recompute_active_ptz(stop_on_change=stop_on_change)
+        active_ptz = self._ptz().recompute_active_ptz(stop_on_change=stop_on_change, force_stop=previous != normalized_source_id)
         self.event_bus.publish(
             EventType.PREVIEW_CHANGED,
             {"old_source_id": previous, "source_id": normalized_source_id, "active_ptz_camera_id": active_ptz},

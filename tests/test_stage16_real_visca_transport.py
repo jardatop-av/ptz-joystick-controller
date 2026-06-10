@@ -40,9 +40,11 @@ def test_udp_transport_interface_compatibility(monkeypatch: pytest.MonkeyPatch) 
     packet = session.stop(reason="compatibility")
 
     assert transport.connected is True
-    assert transport.sent_packets == [packet]
+    assert transport.sent_packets[0] == packet
+    assert len(transport.sent_packets) == 2
     assert dummy.timeout == 0.25
-    assert dummy.sent == [(packet, ("192.0.2.10", 52381))]
+    assert dummy.sent[0] == (packet, ("192.0.2.10", 52381))
+    assert len(dummy.sent) == 2
 
 
 def test_safe_stop_on_exit_sends_stop_and_disconnects() -> None:
@@ -59,7 +61,7 @@ def test_safe_stop_on_exit_sends_stop_and_disconnects() -> None:
     assert session.state.moving is False
     assert session.state.last_command == "stop:test_exit"
     assert fake.disconnect_count == 1
-    assert len(fake.sent_packets) == 2
+    assert len(fake.sent_packets) == 3
 
 
 def test_invalid_or_missing_camera_host_rejected() -> None:

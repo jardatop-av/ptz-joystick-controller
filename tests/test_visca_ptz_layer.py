@@ -77,7 +77,8 @@ def test_offline_ptz_simulation_tracks_state_and_logs_commands() -> None:
     simulation.session.stop(reason="transition")
     assert simulation.session.state.moving is False
     assert simulation.session.state.last_command == "stop:transition"
-    assert simulation.session.command_log[-1].command.payload.endswith(b"\x03\x03\xff")
+    assert simulation.session.command_log[-2].command.payload.endswith(b"\x03\x03\xff")
+    assert simulation.session.command_log[-1].command.payload.endswith(b"\x00\xff")
 
 
 def test_stop_watchdog_stops_moving_camera_after_timeout() -> None:
@@ -100,9 +101,10 @@ def test_ptz_transition_safety_stop_packet_before_next_move() -> None:
     stop_packet = simulation.session.stop(reason="before_cut")
     next_packet = simulation.session.pan_tilt_from_axes(-1.0, 0.0)
 
-    assert simulation.fake_transport.sent_packets[-2] == stop_packet
+    assert simulation.fake_transport.sent_packets[-3] == stop_packet
     assert simulation.fake_transport.sent_packets[-1] == next_packet
-    assert simulation.session.command_log[-2].command.payload == b"\x81\x01\x06\x01\x00\x00\x03\x03\xff"
+    assert simulation.session.command_log[-3].command.payload == b"\x81\x01\x06\x01\x00\x00\x03\x03\xff"
+    assert simulation.session.command_log[-2].command.payload == b"\x81\x01\x04\x07\x00\xff"
 
 
 def test_reconnect_handling_retries_after_connection_loss() -> None:
@@ -126,7 +128,7 @@ def test_reconnect_handling_retries_after_connection_loss() -> None:
 
     assert fake.failed_once is True
     assert fake.connect_count >= 1
-    assert len(fake.sent_packets) == 1
+    assert len(fake.sent_packets) == 2
 
 
 def test_invalid_visca_values_are_rejected() -> None:

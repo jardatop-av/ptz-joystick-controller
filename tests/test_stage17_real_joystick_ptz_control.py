@@ -120,7 +120,7 @@ def test_joystick_center_sends_stop_command() -> None:
 
     set_axes(provider, pan=0, tilt=0, zoom=0, throttle=32767)
     bridge.poll_once()
-    assert any("cam1:stop reason=joystick_centered" in entry for entry in bridge.ptz_router.command_log)
+    assert any("cam1:pan_tilt_stop reason=axis_center" in entry for entry in bridge.ptz_router.command_log)
     assert bridge.ptz_router.diagnostics().active_camera_moving is False
 
 
@@ -161,7 +161,7 @@ def test_copy_program_to_preview_makes_program_ptz_camera_controllable() -> None
     assert bridge.state.active_ptz_camera_id == "cam2"
     set_axes(provider, pan=32767, throttle=32767)
     bridge.poll_once()
-    assert bridge.ptz_router.camera_command_count("cam2") == 2
+    assert bridge.ptz_router.camera_command_count("cam2") == 1
 
 
 def test_hat_switch_routes_fine_pan_tilt_to_active_ptz() -> None:

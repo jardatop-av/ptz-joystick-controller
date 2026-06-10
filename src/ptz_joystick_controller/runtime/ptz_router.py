@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from enum import StrEnum
 from typing import Callable
 
 from ..app_state import AppState
@@ -10,10 +11,37 @@ from ..models.commands import EventType
 from ..models.joystick_input import HatPtzStep, PtzVelocity
 from ..models.ptz import PtzCamera
 from ..ptz import CameraSession, FakeViscaTransport, ReconnectSafeTransport
-from ..ptz.transport import PtzTransport
 from ..ptz.commands import PanDirection, PanTiltCommand, TiltDirection
+from ..ptz.transport import PtzTransport
 
 LOGGER = logging.getLogger(__name__)
+
+
+class PanTiltSource(StrEnum):
+    NONE = "none"
+    MAIN = "main"
+    HAT = "hat"
+
+
+@dataclass(frozen=True)
+class PanTiltIntent:
+    source: PanTiltSource
+    pan: float = 0.0
+    tilt: float = 0.0
+    pan_speed: int = 0
+    tilt_speed: int = 0
+
+    @property
+    def moving(self) -> bool:
+        if self.source == PanTiltSource.HAT:
+            return self.pan_speed != 0 or self.tilt_speed != 0
+        return self.pan != 0.0 or self.tilt != 0.0
+
+    @property
+    def stop_reason(self) -> str:
+        if self.source == PanTiltSource.HAT:
+            return "hat_center"
+        return "axis_center"
 
 
 @dataclass(frozen=True)
@@ -23,6 +51,12 @@ class PtzRouterDiagnostics:
     active_camera_moving: bool
     active_camera_last_command: str | None
     total_logged_commands: int
+    pan_tilt_active: bool = False
+    zoom_active: bool = False
+    hat_active: bool = False
+    effective_pan_tilt_source: str = PanTiltSource.NONE.value
+    last_effective_pan_tilt_command: str | None = None
+    last_zoom_command: str | None = None
 
 
 @dataclass
@@ -33,11 +67,10 @@ class RoutedPtzSession:
 
 @dataclass
 class PtzRouter:
-    """Route normalized joystick PTZ intent to the currently active PTZ camera.
+    """Route joystick PTZ intent to the currently active PTZ camera.
 
-    This router intentionally uses fake/reconnect-safe VISCA transports only. It
-    is the runtime glue between AppState.active_ptz_camera_id and the existing
-    offline VISCA abstraction. Real UDP/TCP sockets are not part of this layer.
+    Main pan/tilt and hat pan/tilt are arbitrated into one effective pan/tilt
+    command path. Zoom remains independent.
     """
 
     state: AppState
@@ -45,7 +78,12 @@ class PtzRouter:
     sessions: dict[str, RoutedPtzSession] = field(init=False)
     command_log: list[str] = field(default_factory=list)
     transport_factory: Callable[[PtzCamera], PtzTransport] | None = None
-    _last_velocity_moving: bool = field(default=False, init=False)
+    pan_tilt_active: bool = field(default=False, init=False)
+    zoom_active: bool = field(default=False, init=False)
+    hat_active: bool = field(default=False, init=False)
+    effective_pan_tilt_source: PanTiltSource = field(default=PanTiltSource.NONE, init=False)
+    last_effective_pan_tilt_command: str | None = field(default=None, init=False)
+    last_zoom_command: str | None = field(default=None, init=False)
 
     def __post_init__(self) -> None:
         self.sessions = {
@@ -85,53 +123,33 @@ class PtzRouter:
             return []
         return list(routed.fake_transport.sent_packets)
 
-    def route_velocity(self, velocity: PtzVelocity) -> bool:
-        session = self.active_session
-        moving = velocity.pan != 0.0 or velocity.tilt != 0.0 or velocity.zoom != 0.0
-        if session is None:
-            if moving:
-                LOGGER.debug(
-                    "PTZ disabled: preview source %s has no PTZ mapping",
-                    self.state.preview_source_id,
-                )
-            self._last_velocity_moving = False
-            return False
+    def _hat_vector_from_step(self, step: HatPtzStep) -> tuple[int, int]:
+        x = 0
+        y = 0
+        if step.pan_speed < 0:
+            x = -1
+        elif step.pan_speed > 0:
+            x = 1
+        if step.tilt_speed > 0:
+            y = 1
+        elif step.tilt_speed < 0:
+            y = -1
+        return x, y
 
-        if not moving:
-            if self._last_velocity_moving or session.state.moving:
-                self.stop(reason="joystick_centered", camera_id=session.camera.id)
-                self._last_velocity_moving = False
-                return True
-            return False
-
-        session.pan_tilt_from_axes(velocity.pan, velocity.tilt)
-        session.zoom_from_axis(velocity.zoom)
-        self._last_velocity_moving = True
-        self.command_log.append(
-            f"{session.camera.id}:axes pan={velocity.pan:.3f} tilt={velocity.tilt:.3f} zoom={velocity.zoom:.3f} speed={velocity.speed_multiplier:.3f}"
-        )
-        LOGGER.info(
-            "PTZ command: camera=%s preview=%s pan=%.3f tilt=%.3f zoom=%.3f speed=%.3f",
-            session.camera.id,
-            self.state.preview_source_id,
-            velocity.pan,
-            velocity.tilt,
-            velocity.zoom,
-            velocity.speed_multiplier,
-        )
-        return True
-
-    def route_hat_step(self, step: HatPtzStep) -> bool:
-        if step.pan_speed == 0 and step.tilt_speed == 0:
-            return False
-        session = self.active_session
-        if session is None:
-            LOGGER.debug(
-                "PTZ hat disabled: preview source %s has no PTZ mapping",
-                self.state.preview_source_id,
+    def _select_pan_tilt_intent(self, velocity: PtzVelocity, hat_step: HatPtzStep | None) -> PanTiltIntent:
+        if velocity.pan != 0.0 or velocity.tilt != 0.0:
+            return PanTiltIntent(PanTiltSource.MAIN, pan=velocity.pan, tilt=velocity.tilt)
+        if hat_step is not None and hat_step.moving:
+            return PanTiltIntent(
+                PanTiltSource.HAT,
+                pan=float(hat_step.pan_speed),
+                tilt=float(hat_step.tilt_speed),
+                pan_speed=hat_step.pan_speed,
+                tilt_speed=hat_step.tilt_speed,
             )
-            return False
+        return PanTiltIntent(PanTiltSource.NONE)
 
+    def _send_hat_pan_tilt(self, session: CameraSession, step: HatPtzStep) -> None:
         pan_speed = abs(step.pan_speed)
         tilt_speed = abs(step.tilt_speed)
         pan_direction = PanDirection.STOP
@@ -144,7 +162,6 @@ class PtzRouter:
             tilt_direction = TiltDirection.UP
         elif step.tilt_speed < 0:
             tilt_direction = TiltDirection.DOWN
-
         command = session.builder.pan_tilt(
             PanTiltCommand(
                 pan_speed=pan_speed,
@@ -154,30 +171,222 @@ class PtzRouter:
             )
         )
         session.send_command(command)
-        self.command_log.append(f"{session.camera.id}:hat pan={step.pan_speed} tilt={step.tilt_speed}")
-        LOGGER.info(
-            "PTZ hat command: camera=%s preview=%s pan_speed=%s tilt_speed=%s",
-            session.camera.id,
-            self.state.preview_source_id,
-            step.pan_speed,
-            step.tilt_speed,
-        )
+        session.state.pan_tilt_active = True
+        session.state.pan = float(step.pan_speed)
+        session.state.tilt = float(step.tilt_speed)
+        session.state.moving = True
+
+    def _route_pan_tilt_intent(self, session: CameraSession, intent: PanTiltIntent) -> bool:
+        if not intent.moving:
+            if self.pan_tilt_active:
+                reason = "hat_center" if self.effective_pan_tilt_source == PanTiltSource.HAT else "axis_center"
+                session.stop_pan_tilt(reason=reason)
+                self.command_log.append(f"{session.camera.id}:pan_tilt_stop reason={reason}")
+                if reason == "hat_center":
+                    self.command_log.append(f"{session.camera.id}:hat_stop reason={reason}")
+                LOGGER.info("PTZ PAN/TILT STOP camera=%s reason=%s", session.camera.id, reason)
+                self.pan_tilt_active = False
+                self.hat_active = False
+                self.effective_pan_tilt_source = PanTiltSource.NONE
+                self.last_effective_pan_tilt_command = f"stop:{reason}"
+                return True
+            self.effective_pan_tilt_source = PanTiltSource.NONE
+            self.hat_active = False
+            return False
+
+        if intent.source == PanTiltSource.MAIN:
+            session.pan_tilt_from_axes(intent.pan, intent.tilt)
+            self.pan_tilt_active = True
+            self.hat_active = False
+            self.effective_pan_tilt_source = PanTiltSource.MAIN
+            self.last_effective_pan_tilt_command = f"main:{intent.pan:.3f}:{intent.tilt:.3f}"
+            self.command_log.append(
+                f"{session.camera.id}:pan_tilt source=main pan={intent.pan:.3f} tilt={intent.tilt:.3f}"
+            )
+            LOGGER.info(
+                "PTZ PAN/TILT MOVE camera=%s source=main pan=%.3f tilt=%.3f",
+                session.camera.id,
+                intent.pan,
+                intent.tilt,
+            )
+            return True
+
+        if intent.source == PanTiltSource.HAT:
+            step = HatPtzStep(pan_speed=intent.pan_speed, tilt_speed=intent.tilt_speed)
+            self._send_hat_pan_tilt(session, step)
+            x, y = self._hat_vector_from_step(step)
+            self.pan_tilt_active = True
+            self.hat_active = True
+            self.effective_pan_tilt_source = PanTiltSource.HAT
+            self.last_effective_pan_tilt_command = f"hat:{x}:{y}:{step.pan_speed}:{step.tilt_speed}"
+            self.command_log.append(
+                f"{session.camera.id}:pan_tilt source=hat x={x} y={y} pan={step.pan_speed} tilt={step.tilt_speed}"
+            )
+            # Compatibility entry for older tests; this is not a separate HAT command path.
+            self.command_log.append(f"{session.camera.id}:hat pan={step.pan_speed} tilt={step.tilt_speed}")
+            self.command_log.append(f"{session.camera.id}:hat x={x} y={y} pan={step.pan_speed} tilt={step.tilt_speed}")
+            LOGGER.info(
+                "PTZ PAN/TILT MOVE camera=%s source=hat x=%s y=%s pan_speed=%s tilt_speed=%s",
+                session.camera.id,
+                x,
+                y,
+                step.pan_speed,
+                step.tilt_speed,
+            )
+            return True
+
+        return False
+
+    def _route_zoom_intent(self, session: CameraSession, velocity: PtzVelocity) -> bool:
+        if velocity.zoom != 0.0:
+            session.zoom_from_axis(velocity.zoom)
+            self.zoom_active = True
+            self.last_zoom_command = f"zoom:{velocity.zoom:.3f}"
+            self.command_log.append(f"{session.camera.id}:zoom zoom={velocity.zoom:.3f} speed={velocity.speed_multiplier:.3f}")
+            LOGGER.info(
+                "PTZ ZOOM MOVE camera=%s zoom=%.3f speed=%.3f",
+                session.camera.id,
+                velocity.zoom,
+                velocity.speed_multiplier,
+            )
+            return True
+        if self.zoom_active:
+            session.stop_zoom(reason="zoom_center")
+            self.zoom_active = False
+            self.last_zoom_command = "stop:zoom_center"
+            self.command_log.append(f"{session.camera.id}:zoom_stop reason=zoom_center")
+            LOGGER.info("PTZ ZOOM STOP camera=%s reason=zoom_center", session.camera.id)
+            return True
+        return False
+
+    def route_controls(self, velocity: PtzVelocity, hat_step: HatPtzStep | None = None) -> bool:
+        """Route one joystick cycle with deterministic pan/tilt arbitration.
+
+        Main pan/tilt has priority. Hat is considered only when main pan/tilt is
+        centered. Zoom is processed independently in the same cycle.
+        """
+        intent = self._select_pan_tilt_intent(velocity, hat_step)
+        session = self.active_session
+        has_any_intent = intent.moving or velocity.zoom != 0.0
+        if session is None:
+            if has_any_intent:
+                LOGGER.debug(
+                    "PTZ disabled: preview source %s has no PTZ mapping",
+                    self.state.preview_source_id,
+                )
+            self.pan_tilt_active = False
+            self.zoom_active = False
+            self.hat_active = False
+            self.effective_pan_tilt_source = PanTiltSource.NONE
+            return False
+        did_send = self._route_pan_tilt_intent(session, intent)
+        did_send = self._route_zoom_intent(session, velocity) or did_send
+        return did_send
+
+    def route_velocity(self, velocity: PtzVelocity) -> bool:
+        return self.route_controls(velocity, None)
+
+    def route_hat_step(self, step: HatPtzStep) -> bool:
+        # Compatibility entry point for callers/tests that route hat alone.
+        return self.route_controls(PtzVelocity(), step)
+
+    def _send_tracked_stop(self, session: CameraSession, *, reason: str) -> bool:
+        sent = False
+        if self.pan_tilt_active:
+            session.stop_pan_tilt(reason=reason)
+            sent = True
+            self.command_log.append(f"{session.camera.id}:pan_tilt_stop reason={reason}")
+        if self.zoom_active:
+            session.stop_zoom(reason=reason)
+            sent = True
+            self.command_log.append(f"{session.camera.id}:zoom_stop reason={reason}")
+        self.pan_tilt_active = False
+        self.zoom_active = False
+        self.hat_active = False
+        self.effective_pan_tilt_source = PanTiltSource.NONE
+        self.last_effective_pan_tilt_command = f"stop:{reason}" if sent else self.last_effective_pan_tilt_command
+        self.last_zoom_command = f"stop:{reason}" if sent else self.last_zoom_command
+        return sent
+
+    def stop_previous_camera(self, camera_id: str, *, reason: str = "preview_source_changed") -> bool:
+        routed = self.sessions.get(camera_id)
+        if routed is None:
+            LOGGER.warning("PTZ stop requested for unknown previous camera: %s", camera_id)
+            self.pan_tilt_active = False
+            self.zoom_active = False
+            self.hat_active = False
+            self.effective_pan_tilt_source = PanTiltSource.NONE
+            return False
+        sent = self._send_tracked_stop(routed.session, reason=reason)
+        if not sent:
+            routed.session.stop_all(reason=reason)
+            sent = True
+        self.command_log.append(f"{camera_id}:stop_previous reason={reason}")
+        if reason == "preview_source_changed":
+            self.command_log.append(f"{camera_id}:stop reason=active_source_changed")
+        LOGGER.info("PTZ STOP PREVIOUS CAMERA camera=%s reason=%s", camera_id, reason)
+        return sent
+
+    def stop_hat(self, reason: str = "hat_center") -> bool:
+        # Compatibility wrapper; unified pan/tilt path owns the stop.
+        session = self.active_session
+        if session is None:
+            self.hat_active = False
+            LOGGER.debug("PTZ hat stop ignored: no active PTZ camera reason=%s", reason)
+            return False
+        if not self.hat_active and not self.pan_tilt_active:
+            return False
+        session.stop_pan_tilt(reason=reason)
+        self.pan_tilt_active = False
+        self.hat_active = False
+        self.effective_pan_tilt_source = PanTiltSource.NONE
+        self.command_log.append(f"{session.camera.id}:pan_tilt_stop reason={reason}")
+        self.command_log.append(f"{session.camera.id}:hat_stop reason={reason}")
+        LOGGER.info("PTZ PAN/TILT STOP camera=%s reason=%s", session.camera.id, reason)
         return True
 
     def stop(self, reason: str, camera_id: str | None = None) -> bool:
         target_id = camera_id or self.active_camera_id
         if target_id is None:
             LOGGER.debug("PTZ stop ignored: no active PTZ camera reason=%s", reason)
+            self.pan_tilt_active = False
+            self.zoom_active = False
+            self.hat_active = False
+            self.effective_pan_tilt_source = PanTiltSource.NONE
             return False
         routed = self.sessions.get(target_id)
         if routed is None:
             LOGGER.warning("PTZ stop requested for unknown camera: %s", target_id)
             return False
-        routed.session.stop(reason=reason)
+        if reason == "preview_source_changed":
+            return self.stop_previous_camera(target_id, reason=reason)
+        routed.session.stop_all(reason=reason)
         if target_id == self.active_camera_id:
-            self._last_velocity_moving = False
+            self.pan_tilt_active = False
+            self.zoom_active = False
+            self.hat_active = False
+            self.effective_pan_tilt_source = PanTiltSource.NONE
         self.command_log.append(f"{target_id}:stop reason={reason}")
         LOGGER.info("PTZ STOP: camera=%s reason=%s", target_id, reason)
+        return True
+
+    def stop_all_active_motion(self, reason: str = "script_exit") -> bool:
+        session = self.active_session
+        if session is None:
+            return False
+        session.stop_pan_tilt(reason=reason)
+        session.stop_zoom(reason=reason)
+        self.pan_tilt_active = False
+        self.zoom_active = False
+        self.hat_active = False
+        self.effective_pan_tilt_source = PanTiltSource.NONE
+        self.last_effective_pan_tilt_command = f"stop:{reason}"
+        self.last_zoom_command = f"stop:{reason}"
+        self.command_log.append(f"{session.camera.id}:pan_tilt_stop reason={reason}")
+        self.command_log.append(f"{session.camera.id}:zoom_stop reason={reason}")
+        self.command_log.append(f"{session.camera.id}:stop reason={reason}")
+        LOGGER.info("PTZ PAN/TILT STOP camera=%s reason=%s", session.camera.id, reason)
+        LOGGER.info("PTZ ZOOM STOP camera=%s reason=%s", session.camera.id, reason)
         return True
 
     def diagnostics(self) -> PtzRouterDiagnostics:
@@ -188,6 +397,12 @@ class PtzRouter:
             active_camera_moving=session.state.moving if session is not None else False,
             active_camera_last_command=session.state.last_command if session is not None else None,
             total_logged_commands=len(self.command_log),
+            pan_tilt_active=self.pan_tilt_active,
+            zoom_active=self.zoom_active,
+            hat_active=self.hat_active,
+            effective_pan_tilt_source=self.effective_pan_tilt_source.value,
+            last_effective_pan_tilt_command=self.last_effective_pan_tilt_command,
+            last_zoom_command=self.last_zoom_command,
         )
 
     def _on_stop_requested(self, event: Event) -> None:

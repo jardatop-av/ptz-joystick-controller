@@ -41,10 +41,17 @@ def test_axis_normalization() -> None:
     assert axes.throttle == -1.0
 
 
-def test_throttle_scaling() -> None:
-    scaler = ThrottleScaler(ThrottleConfig(min_multiplier=0.2, max_multiplier=1.0))
+def test_throttle_scaling_with_invert_false_keeps_existing_behavior() -> None:
+    scaler = ThrottleScaler(ThrottleConfig(min_multiplier=0.2, max_multiplier=1.0, invert=False))
     assert scaler.scale(-1.0) == 0.2
     assert scaler.scale(1.0) == 1.0
+    assert round(scaler.scale(0.0), 6) == 0.6
+
+
+def test_throttle_scaling_with_invert_true_makes_throttle_up_faster() -> None:
+    scaler = ThrottleScaler(ThrottleConfig(min_multiplier=0.2, max_multiplier=1.0, invert=True))
+    assert scaler.scale(-1.0) == 1.0
+    assert scaler.scale(1.0) == 0.2
     assert round(scaler.scale(0.0), 6) == 0.6
 
 
@@ -62,7 +69,7 @@ def test_hat_switch_conversion() -> None:
 def test_ptz_speed_scaling_applies_invert_and_throttle() -> None:
     scaler = PtzSpeedScaler(
         invert=AxisInvertConfig(pan=False, tilt=True, zoom=False),
-        throttle=ThrottleScaler(ThrottleConfig(min_multiplier=0.5, max_multiplier=1.0)),
+        throttle=ThrottleScaler(ThrottleConfig(min_multiplier=0.5, max_multiplier=1.0, invert=False)),
     )
     velocity = scaler.velocity_from_axes(NormalizedAxisState(pan=0.5, tilt=0.5, zoom=-1.0, throttle=1.0))
     assert velocity.speed_multiplier == 1.0

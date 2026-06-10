@@ -101,4 +101,11 @@ class JoystickRuntimeMonitor:
         return scaler.velocity_from_axes(axes)
 
     def hat_step(self, snapshot: JoystickSnapshot):
-        return HatProcessor(self.config.joystick.hat).to_ptz_step(snapshot.hat)
+        throttle_multiplier = 1.0
+        if self.config.joystick.hat.apply_throttle:
+            axes = self.normalized_axes(snapshot)
+            throttle_multiplier = ThrottleScaler(self.config.joystick.throttle).scale(axes.throttle)
+        return HatProcessor(self.config.joystick.hat).to_ptz_step(
+            snapshot.hat,
+            throttle_multiplier=throttle_multiplier,
+        )

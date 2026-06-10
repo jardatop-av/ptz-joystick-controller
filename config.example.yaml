@@ -87,9 +87,11 @@ joystick:
   throttle:
     min_multiplier: 0.20
     max_multiplier: 1.00
+    invert: true
   hat:
     fine_pan_speed: 2
     fine_tilt_speed: 2
+    apply_throttle: false
   buttons:
     trigger:
       action: cut

@@ -6,7 +6,7 @@ from types import TracebackType
 
 from ..models.ptz import PtzCamera
 from .builder import ViscaCommandBuilder
-from .commands import PtzCommandLogEntry, ViscaCommand
+from .commands import PtzCommandLogEntry, ViscaCommand, ZoomCommand, ZoomDirection
 from .packet import ViscaPacketEncoder
 from .speed import PtzSpeedMapper
 from .transport import PtzTransport
@@ -16,6 +16,8 @@ from .transport import PtzTransport
 class PtzState:
     camera_id: str
     moving: bool = False
+    pan_tilt_active: bool = False
+    zoom_active: bool = False
     last_command: str | None = None
     pan: float = 0.0
     tilt: float = 0.0
@@ -41,6 +43,9 @@ class CameraSession:
     def speed_mapper(self) -> PtzSpeedMapper:
         return PtzSpeedMapper(self.camera.speed)
 
+    def _refresh_moving(self) -> None:
+        self.state.moving = self.state.pan_tilt_active or self.state.zoom_active
+
     def send_command(self, command: ViscaCommand) -> bytes:
         packet = self.encoder.encode(command.payload)
         self.transport.send(packet)
@@ -53,24 +58,49 @@ class CameraSession:
         packet = self.send_command(command)
         self.state.pan = pan
         self.state.tilt = tilt
-        self.state.moving = pan != 0.0 or tilt != 0.0 or self.state.zoom != 0.0
+        self.state.pan_tilt_active = pan != 0.0 or tilt != 0.0
+        self._refresh_moving()
         return packet
 
     def zoom_from_axis(self, zoom: float) -> bytes:
         command = self.builder.zoom_from_axis(zoom, self.speed_mapper)
         packet = self.send_command(command)
         self.state.zoom = zoom
-        self.state.moving = self.state.pan != 0.0 or self.state.tilt != 0.0 or zoom != 0.0
+        self.state.zoom_active = zoom != 0.0
+        self._refresh_moving()
         return packet
 
-    def stop(self, reason: str = "manual_stop") -> bytes:
+    def stop_pan_tilt(self, reason: str = "pan_tilt_stop") -> bytes:
         packet = self.send_command(self.builder.stop())
-        self.state.moving = False
         self.state.pan = 0.0
         self.state.tilt = 0.0
-        self.state.zoom = 0.0
-        self.state.last_command = f"stop:{reason}"
+        self.state.pan_tilt_active = False
+        self._refresh_moving()
+        self.state.last_command = f"pan_tilt_stop:{reason}"
         return packet
+
+    def stop_zoom(self, reason: str = "zoom_stop") -> bytes:
+        packet = self.send_command(self.builder.zoom(ZoomCommand(speed=0, direction=ZoomDirection.STOP)))
+        self.state.zoom = 0.0
+        self.state.zoom_active = False
+        self._refresh_moving()
+        self.state.last_command = f"zoom_stop:{reason}"
+        return packet
+
+    def stop_all(self, reason: str = "manual_stop") -> list[bytes]:
+        packets = [self.stop_pan_tilt(reason=reason), self.stop_zoom(reason=reason)]
+        self.state.last_command = f"stop:{reason}"
+        return packets
+
+    def stop(self, reason: str = "manual_stop") -> bytes:
+        """Stop all tracked PTZ movement and return the pan/tilt stop packet.
+
+        The return value preserves the old single-packet API while the method
+        now also sends an independent zoom stop so pan/tilt and zoom state do
+        not depend on each other.
+        """
+        packets = self.stop_all(reason=reason)
+        return packets[0]
 
     def disconnect(self) -> None:
         self.transport.disconnect()
@@ -92,7 +122,7 @@ class SafeStopCameraSession(AbstractContextManager[CameraSession]):
         traceback: TracebackType | None,
     ) -> bool | None:
         try:
-            self.session.stop(reason=self.reason)
+            self.session.stop_all(reason=self.reason)
         except Exception:
             if not self.suppress_stop_errors:
                 raise

@@ -121,6 +121,10 @@ $defs:
         minimum: 0
         title: Fine Tilt Speed
         type: integer
+      apply_throttle:
+        default: false
+        title: Apply Throttle
+        type: boolean
     title: HatConfig
     type: object
   JoystickConfig:
@@ -415,6 +419,10 @@ $defs:
         minimum: 0.0
         title: Max Multiplier
         type: number
+      invert:
+        default: true
+        title: Invert
+        type: boolean
     title: ThrottleConfig
     type: object
   WebUiConfig:

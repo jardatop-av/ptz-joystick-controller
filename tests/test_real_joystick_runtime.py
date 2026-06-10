@@ -84,12 +84,22 @@ def test_calibration_persistence_roundtrip(tmp_path: Path) -> None:
 def test_normalized_velocity_uses_runtime_pipeline() -> None:
     config = load_config("config.example.yaml")
     monitor = JoystickRuntimeMonitor(config, EventBus(), discovery=StaticJoystickDiscovery())
-    snapshot = JoystickSnapshot(axes=RawAxisState(pan=32767, tilt=0, zoom=0, throttle=32767))
+    snapshot = JoystickSnapshot(axes=RawAxisState(pan=32767, tilt=0, zoom=0, throttle=-32768))
 
     velocity = monitor.ptz_velocity(snapshot)
 
     assert velocity.pan == 1.0
     assert velocity.speed_multiplier == config.joystick.throttle.max_multiplier
+
+
+def test_default_throttle_inversion_makes_positive_raw_throttle_slower() -> None:
+    config = load_config("config.example.yaml")
+    monitor = JoystickRuntimeMonitor(config, EventBus(), discovery=StaticJoystickDiscovery())
+    snapshot = JoystickSnapshot(axes=RawAxisState(pan=32767, tilt=0, zoom=0, throttle=32767))
+
+    velocity = monitor.ptz_velocity(snapshot)
+
+    assert velocity.speed_multiplier == config.joystick.throttle.min_multiplier
 
 
 def test_poll_after_hotplug_returns_snapshot_immediately() -> None:

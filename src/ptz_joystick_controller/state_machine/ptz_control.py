@@ -30,7 +30,7 @@ class PtzControlStateMachine:
         self.movement_enabled = True
         self.event_bus.publish("ptz.movement_enabled", {})
 
-    def recompute_active_ptz(self, *, stop_on_change: bool = True) -> str | None:
+    def recompute_active_ptz(self, *, stop_on_change: bool = True, force_stop: bool = False) -> str | None:
         old_camera_id = self.state.active_ptz_camera_id
         candidate_camera_id = None
         if self.state.preview_source_id is not None:
@@ -39,8 +39,8 @@ class PtzControlStateMachine:
             except Exception:
                 candidate_camera_id = None
 
-        if stop_on_change and old_camera_id is not None and old_camera_id != candidate_camera_id:
-            self.request_stop("active_source_changed")
+        if stop_on_change and old_camera_id is not None and (force_stop or old_camera_id != candidate_camera_id):
+            self.request_stop("preview_source_changed")
 
         new_camera_id = self.state.recompute_active_ptz()
         if old_camera_id != new_camera_id:

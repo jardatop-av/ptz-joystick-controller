@@ -109,8 +109,10 @@ class JoystickToSwitcherBridge:
         if snapshot is None:
             LOGGER.debug("Bridge poll: no joystick snapshot available")
         else:
-            self.ptz_router.route_velocity(self.joystick_monitor.ptz_velocity(snapshot))
-            self.ptz_router.route_hat_step(self.joystick_monitor.hat_step(snapshot))
+            self.ptz_router.route_controls(
+                self.joystick_monitor.ptz_velocity(snapshot),
+                self.joystick_monitor.hat_step(snapshot),
+            )
         return self.status()
 
     def status(self) -> JoystickToSwitcherBridgeStatus:

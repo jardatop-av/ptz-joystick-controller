@@ -48,6 +48,7 @@ class ThrottleConfig(BaseModel):
 
     min_multiplier: float = Field(default=0.20, ge=0.0, le=1.0)
     max_multiplier: float = Field(default=1.00, ge=0.0, le=1.0)
+    invert: bool = True
 
     @model_validator(mode="after")
     def validate_range(self) -> "ThrottleConfig":
@@ -61,6 +62,7 @@ class HatConfig(BaseModel):
 
     fine_pan_speed: int = Field(default=2, ge=0)
     fine_tilt_speed: int = Field(default=2, ge=0)
+    apply_throttle: bool = False
 
 
 class JoystickConfig(BaseModel):
