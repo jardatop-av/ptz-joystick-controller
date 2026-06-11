@@ -34,3 +34,11 @@ python scripts/manual_vmix_integration.py --host 192.168.1.100 --port 8088 --deb
 ```
 
 The script polls vMix PROGRAM/PREVIEW state by default. It sends commands only when `--send-commands` is provided.
+
+## Local configuration overrides
+
+`config.example.yaml` is kept as a generic, version-controlled example. For machine-specific values, copy `config.local.example.yaml` to `config.local.yaml` and edit only the values that differ locally.
+
+When loading `config.example.yaml`, the application also loads `config.local.yaml` from the same directory if it exists. Local values are applied after the example config and override matching sections, including camera entries by `id` and source mappings by `source_id`.
+
+`config.local.yaml` is ignored by Git.

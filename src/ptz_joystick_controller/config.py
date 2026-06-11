@@ -112,8 +112,78 @@ def parse_config(data: dict[str, Any]) -> ControllerConfig:
         raise ConfigError(str(exc)) from exc
 
 
-def load_config(path: str | Path) -> ControllerConfig:
-    return parse_config(load_yaml_file(path))
+def _merge_sequence_by_key(base: list[Any], override: list[Any]) -> list[Any]:
+    """Merge lists of mappings by stable keys used in config files.
+
+    Lists such as ``ptz.cameras`` and ``sources.mappings`` are edited locally by
+    id rather than repeated in full. Unknown override items are appended. Lists
+    without a known key fall back to full replacement.
+    """
+    key_candidates = ("id", "source_id", "name")
+    selected_key: str | None = None
+    for key in key_candidates:
+        if any(isinstance(item, dict) and key in item for item in base + override):
+            selected_key = key
+            break
+
+    if selected_key is None:
+        return override
+
+    merged: list[Any] = []
+    index: dict[Any, int] = {}
+    for item in base:
+        merged.append(item)
+        if isinstance(item, dict) and selected_key in item:
+            index[item[selected_key]] = len(merged) - 1
+
+    for item in override:
+        if isinstance(item, dict) and selected_key in item and item[selected_key] in index:
+            existing = merged[index[item[selected_key]]]
+            if isinstance(existing, dict):
+                merged[index[item[selected_key]]] = deep_merge_config(existing, item)
+            else:
+                merged[index[item[selected_key]]] = item
+        else:
+            merged.append(item)
+    return merged
+
+
+def deep_merge_config(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+    """Return ``base`` recursively overridden by ``override``.
+
+    This is intended for ``config.local.yaml`` machine-specific overrides. It
+    keeps the generic example complete while allowing small local patches such as
+    camera hosts, disabled cameras or vMix host/port changes.
+    """
+    merged: dict[str, Any] = dict(base)
+    for key, override_value in override.items():
+        if key in merged:
+            base_value = merged[key]
+            if isinstance(base_value, dict) and isinstance(override_value, dict):
+                merged[key] = deep_merge_config(base_value, override_value)
+            elif isinstance(base_value, list) and isinstance(override_value, list):
+                merged[key] = _merge_sequence_by_key(base_value, override_value)
+            else:
+                merged[key] = override_value
+        else:
+            merged[key] = override_value
+    return merged
+
+
+def default_local_config_path(path: str | Path) -> Path:
+    config_path = Path(path)
+    if config_path.name == "config.example.yaml":
+        return config_path.with_name("config.local.yaml")
+    return config_path.with_suffix(".local.yaml")
+
+
+def load_config(path: str | Path, *, local_path: str | Path | None = None, use_local: bool = True) -> ControllerConfig:
+    base_data = load_yaml_file(path)
+    if use_local:
+        resolved_local_path = Path(local_path) if local_path is not None else default_local_config_path(path)
+        if resolved_local_path.exists():
+            base_data = deep_merge_config(base_data, load_yaml_file(resolved_local_path))
+    return parse_config(base_data)
 
 
 def dump_config(config: ControllerConfig) -> dict[str, Any]:
