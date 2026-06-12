@@ -14,6 +14,7 @@ from ..state_machine.ptz_control import PtzControlStateMachine
 from ..switchers.base import AbstractSwitcher
 from .switcher_executor import SwitcherCommandExecutor
 from .ptz_router import PtzRouter, PtzRouterDiagnostics
+from ..models.commands import CommandType
 from ..models.ptz import PtzCamera
 from ..ptz.transport import PtzTransport
 
@@ -104,7 +105,11 @@ class JoystickToSwitcherBridge:
                     continue
                 command = self.joystick_dispatcher.dispatch_button_event(button_event)
                 if command is not None:
-                    self.switcher_executor.execute(command)
+                    if command.type == CommandType.PTZ_PRESET_RECALL:
+                        if command.preset_number is not None:
+                            self.ptz_router.recall_preset(command.preset_number)
+                    else:
+                        self.switcher_executor.execute(command)
 
         if snapshot is None:
             LOGGER.debug("Bridge poll: no joystick snapshot available")

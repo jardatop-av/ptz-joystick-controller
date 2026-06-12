@@ -10,6 +10,7 @@ class ButtonAction(StrEnum):
     AUTO = "auto"
     COPY_PROGRAM_TO_PREVIEW = "copy_program_to_preview"
     PREVIEW_SOURCE = "preview_source"
+    PRESET_RECALL = "preset_recall"
 
 
 class ButtonMapping(BaseModel):
@@ -17,13 +18,26 @@ class ButtonMapping(BaseModel):
 
     action: ButtonAction = ButtonAction.NONE
     source_id: str | None = None
+    preset_number: int | None = Field(default=None, ge=0, le=255)
 
     @model_validator(mode="after")
-    def validate_source_id_usage(self) -> "ButtonMapping":
-        if self.action == ButtonAction.PREVIEW_SOURCE and not self.source_id:
-            raise ValueError("preview_source action requires source_id")
-        if self.action != ButtonAction.PREVIEW_SOURCE and self.source_id:
+    def validate_action_payload(self) -> "ButtonMapping":
+        if self.action == ButtonAction.PREVIEW_SOURCE:
+            if not self.source_id:
+                raise ValueError("preview_source action requires source_id")
+            if self.preset_number is not None:
+                raise ValueError("preset_number is not allowed for preview_source action")
+            return self
+        if self.action == ButtonAction.PRESET_RECALL:
+            if self.preset_number is None:
+                raise ValueError("preset_recall action requires preset_number")
+            if self.source_id:
+                raise ValueError("source_id is not allowed for preset_recall action")
+            return self
+        if self.source_id:
             raise ValueError("source_id is allowed only for preview_source action")
+        if self.preset_number is not None:
+            raise ValueError("preset_number is allowed only for preset_recall action")
         return self
 
 

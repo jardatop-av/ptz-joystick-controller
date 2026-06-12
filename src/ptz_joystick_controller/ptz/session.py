@@ -102,6 +102,12 @@ class CameraSession:
         packets = self.stop_all(reason=reason)
         return packets[0]
 
+    def recall_preset(self, preset_number: int) -> bytes:
+        command = self.builder.preset_recall(preset_number)
+        packet = self.send_command(command)
+        self.state.last_command = f"preset_recall:{preset_number}"
+        return packet
+
     def disconnect(self) -> None:
         self.transport.disconnect()
 

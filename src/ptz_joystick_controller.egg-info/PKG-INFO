@@ -1,0 +1,13 @@
+Metadata-Version: 2.4
+Name: ptz-joystick-controller
+Version: 0.1.0
+Summary: Backend skeleton for PTZ Joystick Controller appliance
+Requires-Python: >=3.11
+Requires-Dist: PyYAML>=6.0
+Requires-Dist: pydantic>=2.0
+Provides-Extra: test
+Requires-Dist: pytest>=8.0; extra == "test"
+Provides-Extra: linux-joystick
+Requires-Dist: evdev>=1.7; extra == "linux-joystick"
+Provides-Extra: windows-joystick
+Requires-Dist: pygame>=2.5; extra == "windows-joystick"

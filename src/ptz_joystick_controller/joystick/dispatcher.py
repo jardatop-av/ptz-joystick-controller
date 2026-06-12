@@ -34,6 +34,14 @@ class JoystickActionDispatcher:
                 source_id=mapping.source_id,
                 origin=f"joystick:{button_name}",
             )
+        if mapping.action == ButtonAction.PRESET_RECALL:
+            if mapping.preset_number is None:
+                raise CommandError(f"Button {button_name} preset_recall action has no preset_number")
+            return Command(
+                type=CommandType.PTZ_PRESET_RECALL,
+                preset_number=mapping.preset_number,
+                origin=f"joystick:{button_name}",
+            )
         raise CommandError(f"Unsupported button action: {mapping.action}")
 
     def dispatch_button(self, button_name: str) -> Command:

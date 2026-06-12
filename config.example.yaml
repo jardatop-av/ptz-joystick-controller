@@ -110,14 +110,14 @@ joystick:
       action: preview_source
       source_id: Input 4
     button_7:
-      action: preview_source
-      source_id: Input 1
+      action: preset_recall
+      preset_number: 1
     button_8:
-      action: preview_source
-      source_id: Input 2
+      action: preset_recall
+      preset_number: 2
     button_9:
-      action: preview_source
-      source_id: Input 3
+      action: preset_recall
+      preset_number: 3
     button_10:
       action: preview_source
       source_id: Input 4

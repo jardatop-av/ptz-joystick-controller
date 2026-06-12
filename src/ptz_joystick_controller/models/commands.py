@@ -14,6 +14,7 @@ class CommandType(StrEnum):
     AUTO = "auto"
     COPY_PROGRAM_TO_PREVIEW = "copy_program_to_preview"
     PTZ_STOP = "ptz_stop"
+    PTZ_PRESET_RECALL = "ptz_preset_recall"
 
 
 class EventType(StrEnum):
@@ -32,6 +33,7 @@ class Command:
     type: CommandType
     source_id: str | None = None
     reason: str | None = None
+    preset_number: int | None = None
     origin: str | None = None
     payload: dict[str, Any] = field(default_factory=dict)
     id: str = field(default_factory=lambda: str(uuid4()))

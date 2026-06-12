@@ -79,6 +79,12 @@ class ViscaCommandBuilder:
             )
         )
 
+    def preset_recall(self, preset_number: int) -> ViscaCommand:
+        if not 0 <= preset_number <= 255:
+            raise ValueError("VISCA preset number must be in range 0..255")
+        payload = bytes([_camera_address(self.visca_id), 0x01, 0x04, 0x3F, 0x02, preset_number, 0xFF])
+        return ViscaCommand(payload=payload, description=f"preset_recall:{preset_number}")
+
     def pan_tilt_from_axes(self, pan: float, tilt: float, speed: PtzSpeedMapper) -> ViscaCommand:
         pan_speed = speed.pan_speed(pan)
         tilt_speed = speed.tilt_speed(tilt)

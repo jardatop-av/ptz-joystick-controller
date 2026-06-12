@@ -1,0 +1,11 @@
+PyYAML>=6.0
+pydantic>=2.0
+
+[linux-joystick]
+evdev>=1.7
+
+[test]
+pytest>=8.0
+
+[windows-joystick]
+pygame>=2.5

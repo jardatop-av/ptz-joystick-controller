@@ -345,6 +345,35 @@ class PtzRouter:
         LOGGER.info("PTZ PAN/TILT STOP camera=%s reason=%s", session.camera.id, reason)
         return True
 
+    def recall_preset(self, preset_number: int, *, stop_before_recall: bool = True) -> bool:
+        """Recall a PTZ preset on the active camera only.
+
+        Preset recall is a discrete VISCA command. If continuous movement is
+        currently tracked, the router may stop that movement before recall. It
+        intentionally never sends a stop after recall, because that can cancel
+        preset travel on cameras such as NewTek PTZ1.
+        """
+        if not 0 <= preset_number <= 255:
+            raise ValueError("PTZ preset number must be in range 0..255")
+        session = self.active_session
+        if session is None:
+            LOGGER.info(
+                "PTZ preset recall ignored: no active PTZ camera preset=%s preview=%s",
+                preset_number,
+                self.state.preview_source_id,
+            )
+            self.command_log.append(f"preset_ignored preset={preset_number} reason=no_active_ptz")
+            return False
+        if stop_before_recall:
+            stopped = self._send_tracked_stop(session, reason="before_preset_recall")
+            if stopped:
+                self.command_log.append(f"{session.camera.id}:stop_before_preset_recall")
+                LOGGER.info("PTZ STOP BEFORE PRESET RECALL camera=%s", session.camera.id)
+        session.recall_preset(preset_number)
+        self.command_log.append(f"{session.camera.id}:preset_recall preset={preset_number}")
+        LOGGER.info("PTZ PRESET RECALL camera=%s preset=%s", session.camera.id, preset_number)
+        return True
+
     def stop(self, reason: str, camera_id: str | None = None) -> bool:
         target_id = camera_id or self.active_camera_id
         if target_id is None:

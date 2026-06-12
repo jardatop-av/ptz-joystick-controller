@@ -5,6 +5,7 @@ from .session import CameraSession, PtzState, SafeStopCameraSession
 from .simulator import OfflinePtzSimulation
 from .transport import FakeViscaTransport, ReconnectSafeTransport, UdpViscaTransport, build_real_udp_transport
 from .watchdog import PtzStopWatchdog
+from .presets import FakePresetTransport, PtzPresetRecall, PtzPresetTransport, ViscaPresetRecallTransport
 
 __all__ = [
     "CameraSession",
@@ -24,4 +25,8 @@ __all__ = [
     "ViscaPacketEncoder",
     "ZoomCommand",
     "ZoomDirection",
+    "FakePresetTransport",
+    "PtzPresetRecall",
+    "PtzPresetTransport",
+    "ViscaPresetRecallTransport",
 ]
