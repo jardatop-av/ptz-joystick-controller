@@ -88,4 +88,5 @@ class JoystickConfig(BaseModel):
     invert: AxisInvertConfig = Field(default_factory=AxisInvertConfig)
     throttle: ThrottleConfig = Field(default_factory=ThrottleConfig)
     hat: HatConfig = Field(default_factory=HatConfig)
+    button_labels: dict[str, str] = Field(default_factory=dict)
     buttons: dict[str, ButtonMapping] = Field(default_factory=dict)

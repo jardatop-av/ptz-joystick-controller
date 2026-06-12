@@ -48,6 +48,7 @@ $defs:
     - auto
     - copy_program_to_preview
     - preview_source
+    - preset_recall
     title: ButtonAction
     type: string
   ButtonMapping:
@@ -61,6 +62,14 @@ $defs:
         - type: 'null'
         default: null
         title: Source Id
+      preset_number:
+        anyOf:
+        - maximum: 255
+          minimum: 0
+          type: integer
+        - type: 'null'
+        default: null
+        title: Preset Number
     title: ButtonMapping
     type: object
   DeadzoneConfig:
@@ -145,6 +154,11 @@ $defs:
         $ref: '#/$defs/ThrottleConfig'
       hat:
         $ref: '#/$defs/HatConfig'
+      button_labels:
+        additionalProperties:
+          type: string
+        title: Button Labels
+        type: object
       buttons:
         additionalProperties:
           $ref: '#/$defs/ButtonMapping'

@@ -12,6 +12,7 @@ from .calibration import JoystickCalibration
 from .deadzone import DeadzoneProcessor
 from .device import JoystickInputProvider
 from .discovery import AutoJoystickDiscovery, JoystickDiscoveryBackend
+from .axis_metadata import AxisInversionMetadataRegistry
 from .hat import HatProcessor
 from .ptz_speed import PtzSpeedScaler
 from .throttle import ThrottleScaler
@@ -31,7 +32,21 @@ class JoystickRuntimeMonitor:
     provider: JoystickInputProvider | None = None
 
     def start(self) -> None:
+        self.log_axis_inversion_settings()
         self.reconnect_if_needed()
+
+    def log_axis_inversion_settings(self) -> None:
+        registry = AxisInversionMetadataRegistry(self.config.joystick.invert)
+        LOGGER.info(
+            "Joystick axis inversion: pan=%s tilt=%s zoom=%s",
+            self.config.joystick.invert.pan,
+            self.config.joystick.invert.tilt,
+            self.config.joystick.invert.zoom,
+        )
+        LOGGER.debug(
+            "Joystick axis inversion metadata: %s",
+            {key: metadata.label for key, metadata in registry.all_metadata().items()},
+        )
 
     def reconnect_if_needed(self) -> None:
         if self.provider is not None and self.health.connected:
@@ -90,7 +105,29 @@ class JoystickRuntimeMonitor:
 
     def normalized_axes(self, snapshot: JoystickSnapshot) -> NormalizedAxisState:
         axes = self.calibration.normalize_axes(snapshot.axes)
+        axes = self._apply_physical_axis_conventions(axes)
         return DeadzoneProcessor(self.config.joystick.deadzone).process(axes)
+
+    def _apply_physical_axis_conventions(self, axes: NormalizedAxisState) -> NormalizedAxisState:
+        """Return normalized axes using project-level physical joystick conventions.
+
+        Most real joystick backends report the Y axis as negative when the stick
+        is pushed forward/up. The rest of the PTZ pipeline uses positive tilt as
+        the physical forward/up joystick intent and then applies
+        ``joystick.invert.tilt`` exactly once in :class:`PtzSpeedScaler`.
+
+        Keeping this conversion in the runtime monitor ensures the same main
+        tilt inversion path is used by the manual joystick monitor, the
+        joystick-to-vMix bridge and the joystick-to-vMix-PTZ end-to-end tool.
+        Pan, zoom and throttle are intentionally left unchanged.
+        """
+
+        return NormalizedAxisState(
+            pan=axes.pan,
+            tilt=-axes.tilt,
+            zoom=axes.zoom,
+            throttle=axes.throttle,
+        )
 
     def ptz_velocity(self, snapshot: JoystickSnapshot):
         axes = self.normalized_axes(snapshot)
@@ -105,7 +142,7 @@ class JoystickRuntimeMonitor:
         if self.config.joystick.hat.apply_throttle:
             axes = self.normalized_axes(snapshot)
             throttle_multiplier = ThrottleScaler(self.config.joystick.throttle).scale(axes.throttle)
-        return HatProcessor(self.config.joystick.hat).to_ptz_step(
+        return HatProcessor(self.config.joystick.hat, invert=self.config.joystick.invert).to_ptz_step(
             snapshot.hat,
             throttle_multiplier=throttle_multiplier,
         )

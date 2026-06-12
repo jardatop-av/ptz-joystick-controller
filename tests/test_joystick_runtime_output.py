@@ -32,8 +32,8 @@ def test_runtime_output_logs_button_press_and_release_separately() -> None:
     pressed = output.snapshot_messages(monitor, JoystickSnapshot(pressed_buttons=frozenset({"trigger"})), now=1.0)
     released = output.snapshot_messages(monitor, JoystickSnapshot(pressed_buttons=frozenset()), now=2.0)
 
-    assert [(message.message, message.args) for message in pressed] == [("Button pressed: %s", ("trigger",))]
-    assert [(message.message, message.args) for message in released] == [("Button released: %s", ("trigger",))]
+    assert [(message.message, message.args) for message in pressed] == [("Button pressed: %s (%s)", ("Trigger / CUT", "trigger"))]
+    assert [(message.message, message.args) for message in released] == [("Button released: %s (%s)", ("Trigger / CUT", "trigger"))]
 
 
 def test_runtime_output_logs_hat_direction_changes_separately() -> None:

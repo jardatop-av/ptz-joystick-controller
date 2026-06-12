@@ -100,11 +100,17 @@ class JoystickToSwitcherBridge:
         if provider is not None:
             for button_event in provider.button_events():
                 event_type = "pressed" if button_event.pressed else "released"
-                LOGGER.info("Joystick button %s: %s", event_type, button_event.button_name)
+                button_label = self.joystick_dispatcher.label_for_button(button_event.button_name)
+                LOGGER.info("Joystick button %s: %s (%s)", event_type, button_label, button_event.button_name)
                 if not button_event.pressed:
                     continue
                 command = self.joystick_dispatcher.dispatch_button_event(button_event)
                 if command is not None:
+                    action_description = self.joystick_dispatcher.describe_button_command(button_event.button_name, command)
+                    LOGGER.info("Button pressed: %s", action_description)
+                    if command.type == CommandType.NOOP:
+                        LOGGER.info("Joystick button disabled: %s", action_description)
+                        continue
                     if command.type == CommandType.PTZ_PRESET_RECALL:
                         if command.preset_number is not None:
                             self.ptz_router.recall_preset(command.preset_number)

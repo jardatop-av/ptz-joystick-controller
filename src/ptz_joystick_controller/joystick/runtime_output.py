@@ -6,6 +6,7 @@ from time import monotonic
 from ..models.joystick_input import HatDirection, JoystickSnapshot, RawAxisState
 from ..models.joystick_runtime import JoystickHealth
 from .runtime import JoystickRuntimeMonitor
+from .button_metadata import ButtonMetadataRegistry
 
 
 @dataclass(frozen=True)
@@ -55,10 +56,11 @@ class JoystickRuntimeOutputFilter:
         pressed = snapshot.pressed_buttons
         newly_pressed = sorted(pressed - self.last_buttons)
         newly_released = sorted(self.last_buttons - pressed)
+        metadata = ButtonMetadataRegistry(monitor.config.joystick.button_labels)
         for button_name in newly_pressed:
-            messages.append(RuntimeLogMessage("Button pressed: %s", (button_name,)))
+            messages.append(RuntimeLogMessage("Button pressed: %s (%s)", (metadata.label_for(button_name), button_name)))
         for button_name in newly_released:
-            messages.append(RuntimeLogMessage("Button released: %s", (button_name,)))
+            messages.append(RuntimeLogMessage("Button released: %s (%s)", (metadata.label_for(button_name), button_name)))
         self.last_buttons = pressed
 
         hat_direction = snapshot.hat.direction

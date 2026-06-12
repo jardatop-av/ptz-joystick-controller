@@ -119,8 +119,7 @@ joystick:
       action: preset_recall
       preset_number: 3
     button_10:
-      action: preview_source
-      source_id: Input 4
+      action: none
     button_11:
       action: none
     button_12:
