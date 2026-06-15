@@ -57,6 +57,13 @@ class AxisInvertConfig(BaseModel):
     zoom: bool = False
 
 
+class OutputDeadzoneConfig(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    pan_tilt: float = Field(default=0.05, ge=0.0, le=1.0)
+    zoom: float = Field(default=0.05, ge=0.0, le=1.0)
+
+
 class ThrottleConfig(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -86,6 +93,7 @@ class JoystickConfig(BaseModel):
     device_path: str = "auto"
     deadzone: DeadzoneConfig = Field(default_factory=DeadzoneConfig)
     invert: AxisInvertConfig = Field(default_factory=AxisInvertConfig)
+    output_deadzone: OutputDeadzoneConfig = Field(default_factory=OutputDeadzoneConfig)
     throttle: ThrottleConfig = Field(default_factory=ThrottleConfig)
     hat: HatConfig = Field(default_factory=HatConfig)
     button_labels: dict[str, str] = Field(default_factory=dict)

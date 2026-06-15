@@ -25,6 +25,8 @@ class HatProcessor:
         return HatPtzStep(
             pan_speed=self._scaled_signed_speed(pan_direction, self.config.fine_pan_speed, multiplier),
             tilt_speed=self._scaled_signed_speed(tilt_direction, self.config.fine_tilt_speed, multiplier),
+            x=pan_direction,
+            y=tilt_direction,
         )
 
     @staticmethod

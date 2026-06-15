@@ -42,6 +42,7 @@ class PtzStopWatchdogConfig(BaseModel):
 
     enabled: bool = True
     timeout_ms: int = Field(default=500, ge=50)
+    center_confirm_samples: int = Field(default=3, ge=1)
 
 
 class PtzConfig(BaseModel):

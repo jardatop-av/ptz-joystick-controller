@@ -150,6 +150,8 @@ $defs:
         $ref: '#/$defs/DeadzoneConfig'
       invert:
         $ref: '#/$defs/AxisInvertConfig'
+      output_deadzone:
+        $ref: '#/$defs/OutputDeadzoneConfig'
       throttle:
         $ref: '#/$defs/ThrottleConfig'
       hat:
@@ -185,6 +187,22 @@ $defs:
       safe_rollback:
         $ref: '#/$defs/SafeRollbackConfig'
     title: NetworkConfig
+    type: object
+  OutputDeadzoneConfig:
+    properties:
+      pan_tilt:
+        default: 0.05
+        maximum: 1.0
+        minimum: 0.0
+        title: Pan Tilt
+        type: number
+      zoom:
+        default: 0.05
+        maximum: 1.0
+        minimum: 0.0
+        title: Zoom
+        type: number
+    title: OutputDeadzoneConfig
     type: object
   PtzCamera:
     properties:
@@ -297,6 +315,11 @@ $defs:
         default: 500
         minimum: 50
         title: Timeout Ms
+        type: integer
+      center_confirm_samples:
+        default: 3
+        minimum: 1
+        title: Center Confirm Samples
         type: integer
     title: PtzStopWatchdogConfig
     type: object

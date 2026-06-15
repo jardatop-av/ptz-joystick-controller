@@ -37,6 +37,7 @@ ptz:
   stop_watchdog:
     enabled: true
     timeout_ms: 500
+    center_confirm_samples: 3
   cameras:
     - id: cam1
       name: PTZ Camera 1
@@ -84,6 +85,9 @@ joystick:
     pan: false
     tilt: true
     zoom: false
+  output_deadzone:
+    pan_tilt: 0.05
+    zoom: 0.05
   throttle:
     min_multiplier: 0.20
     max_multiplier: 1.00

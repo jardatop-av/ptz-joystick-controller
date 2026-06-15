@@ -77,6 +77,8 @@ class HatState:
 class HatPtzStep:
     pan_speed: int = 0
     tilt_speed: int = 0
+    x: int = 0
+    y: int = 0
 
     @property
     def moving(self) -> bool:
