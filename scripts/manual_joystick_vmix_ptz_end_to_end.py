@@ -19,6 +19,7 @@ import argparse
 import logging
 import platform
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -37,6 +38,7 @@ from ptz_joystick_controller.models.joystick_runtime import JoystickDeviceInfo  
 from ptz_joystick_controller.models.ptz import PtzCamera  # noqa: E402
 from ptz_joystick_controller.ptz.transport import build_real_udp_transport  # noqa: E402
 from ptz_joystick_controller.runtime.joystick_switcher_bridge import JoystickToSwitcherBridge  # noqa: E402
+from ptz_joystick_controller.webui import RuntimeStatusProvider, create_web_app  # noqa: E402
 from ptz_joystick_controller.switchers.http_client import HttpClient  # noqa: E402
 from ptz_joystick_controller.switchers.vmix import VmixSwitcher  # noqa: E402
 
@@ -62,7 +64,28 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--send-switcher-commands", action="store_true", help="Actually send PreviewInput/Cut/Fade commands to vMix")
     parser.add_argument("--real-ptz", action="store_true", help="Open real VISCA-over-IP UDP transports for configured cameras")
     parser.add_argument("--debug", action="store_true")
+    parser.add_argument("--no-dashboard", action="store_true", help="Disable the live read-only dashboard")
+    parser.add_argument("--dashboard-host", default=None, help="Override dashboard listen host")
+    parser.add_argument("--dashboard-port", type=int, default=None, help="Override dashboard listen port")
     return parser.parse_args()
+
+
+def start_dashboard_thread(bridge: JoystickToSwitcherBridge, *, host: str, port: int, debug: bool = False) -> None:
+    """Start the read-only dashboard against live bridge state in a daemon thread."""
+
+    def _run() -> None:
+        try:
+            import uvicorn
+
+            provider = RuntimeStatusProvider.from_bridge(bridge)
+            app = create_web_app(provider)
+            logging.info("Live dashboard: http://%s:%s", host, port)
+            uvicorn.run(app, host=host, port=port, log_level="debug" if debug else "warning")
+        except Exception as exc:  # dashboard must not stop joystick/switcher/PTZ runtime
+            logging.info("Live dashboard failed safely: %s", exc)
+
+    thread = threading.Thread(target=_run, name="ptz-dashboard", daemon=True)
+    thread.start()
 
 
 def main() -> int:
@@ -122,6 +145,15 @@ def main() -> int:
     logging.info("Expected mapping: Preview Input 1 -> cam1, Input 2 -> cam2, Input 3/4 -> no PTZ")
 
     bridge.start()
+
+    if config.webui.enabled and not args.no_dashboard:
+        start_dashboard_thread(
+            bridge,
+            host=args.dashboard_host or config.webui.listen_host,
+            port=args.dashboard_port or config.webui.listen_port,
+            debug=args.debug,
+        )
+
     next_status = 0.0
     try:
         while True:

@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field, is_dataclass
 from datetime import datetime, timezone
-from typing import Any
+from enum import Enum
+from typing import Any, TYPE_CHECKING
 
 from ..app_state import AppState
 from ..event_bus import Event, EventBus
@@ -12,6 +13,10 @@ from ..models.switcher import SwitcherConnectionState
 from ..runtime.ptz_router import PtzRouter
 from ..switchers.base import AbstractSwitcher
 from ..version import __version__
+
+if TYPE_CHECKING:
+    from ..joystick.runtime import JoystickRuntimeMonitor
+    from ..runtime.joystick_switcher_bridge import JoystickToSwitcherBridge
 
 try:
     from ..version import __stage__
@@ -31,11 +36,33 @@ class RuntimeStatusProvider:
     state: AppState
     event_bus: EventBus | None = None
     joystick_health: JoystickHealth = field(default_factory=JoystickHealth)
+    joystick_monitor: "JoystickRuntimeMonitor | None" = None
     switcher: AbstractSwitcher | None = None
     ptz_router: PtzRouter | None = None
     started_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     max_recent_events: int = 20
     _recent_events: list[Event] = field(default_factory=list, init=False)
+
+
+    @classmethod
+    def from_bridge(cls, bridge: "JoystickToSwitcherBridge", *, max_recent_events: int = 20) -> "RuntimeStatusProvider":
+        """Create a status provider backed by a live runtime bridge.
+
+        This intentionally stores references to the live state objects instead
+        of copying values. Every /api/status request therefore reflects the
+        latest joystick, switcher, preview/program and PTZ router state without
+        restarting the dashboard process.
+        """
+
+        return cls(
+            state=bridge.state,
+            event_bus=bridge.event_bus,
+            joystick_health=bridge.joystick_monitor.health,
+            joystick_monitor=bridge.joystick_monitor,
+            switcher=bridge.switcher,
+            ptz_router=bridge.ptz_router,
+            max_recent_events=max_recent_events,
+        )
 
     def __post_init__(self) -> None:
         if self.event_bus is not None:
@@ -50,8 +77,12 @@ class RuntimeStatusProvider:
         return max(0.0, (datetime.now(timezone.utc) - self.started_at).total_seconds())
 
     def _normalized_axes(self) -> dict[str, float]:
-        axes = self.joystick_health.last_snapshot.axes
-        normalized = JoystickCalibration().normalize_axes(axes)
+        snapshot = self.joystick_health.last_snapshot
+        normalized = (
+            self.joystick_monitor.normalized_axes(snapshot)
+            if self.joystick_monitor is not None
+            else JoystickCalibration().normalize_axes(snapshot.axes)
+        )
         return {
             "pan": round(normalized.pan, 4),
             "tilt": round(normalized.tilt, 4),
@@ -143,11 +174,26 @@ class RuntimeStatusProvider:
             },
         }
 
+    def _json_safe(self, value: Any) -> Any:
+        if is_dataclass(value):
+            return self._json_safe(asdict(value))
+        if isinstance(value, Enum):
+            return value.value
+        if isinstance(value, datetime):
+            return value.isoformat()
+        if isinstance(value, dict):
+            return {str(key): self._json_safe(item) for key, item in value.items()}
+        if isinstance(value, (list, tuple, set, frozenset)):
+            return [self._json_safe(item) for item in value]
+        if isinstance(value, (str, int, float, bool)) or value is None:
+            return value
+        return str(value)
+
     def recent_activity(self) -> list[dict[str, Any]]:
         return [
             {
                 "type": event.type,
-                "payload": event.payload,
+                "payload": self._json_safe(event.payload),
                 "created_at": event.created_at.isoformat(),
             }
             for event in self._recent_events[: self.max_recent_events]

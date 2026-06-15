@@ -48,31 +48,39 @@ class JoystickRuntimeMonitor:
             {key: metadata.label for key, metadata in registry.all_metadata().items()},
         )
 
+    def _mark_disconnected_once(self, reason: str) -> None:
+        was_connected = self.health.connected
+        already_disconnected = self.health.state.value == "disconnected"
+        if was_connected or not already_disconnected:
+            LOGGER.info("Joystick disconnected: %s", reason)
+            self.health.mark_disconnected(reason)
+            LOGGER.info("Joystick health status: %s", self.health.status_text())
+            self.event_bus.publish("joystick.disconnected", {"reason": self.health.last_error})
+        else:
+            # Keep reconnect attempts observable internally without flooding the runtime event stream.
+            self.health.mark_disconnected(reason)
+
     def reconnect_if_needed(self) -> None:
         if self.provider is not None and self.health.connected:
             return
+        LOGGER.info("Joystick reconnect polling...")
         previous_device = self.health.device
+        was_previously_connected = self.health.connected
         devices = self.discovery.discover()
         if not devices:
-            reason = "No joystick device found"
-            if self.health.connected or self.health.last_error != reason:
-                LOGGER.info("Joystick disconnected: %s", reason)
-            self.health.mark_disconnected(reason)
-            self.event_bus.publish("joystick.disconnected", {"reason": self.health.last_error})
+            self._mark_disconnected_once("No joystick device found")
             return
         if self.provider_factory is None:
-            reason = "No joystick provider factory configured"
-            if self.health.connected or self.health.last_error != reason:
-                LOGGER.info("Joystick disconnected: %s", reason)
-            self.health.mark_disconnected(reason)
-            self.event_bus.publish("joystick.disconnected", {"reason": self.health.last_error})
+            self._mark_disconnected_once("No joystick provider factory configured")
             return
         device = devices[0]
         try:
             self.provider = self.provider_factory(device)
             snapshot = self.provider.snapshot()
             self.health.mark_connected(device, snapshot)
-            if previous_device != device:
+            if previous_device is not None or not was_previously_connected:
+                LOGGER.info("Joystick reconnected: %s", device.name)
+            else:
                 LOGGER.info("Joystick connected: %s", device.name)
             LOGGER.info("Joystick health status: %s", self.health.status_text())
             self.event_bus.publish("joystick.connected", {"device": device, "device_name": device.name})
@@ -97,10 +105,7 @@ class JoystickRuntimeMonitor:
         except Exception as exc:
             LOGGER.debug("Joystick poll failed", exc_info=True)
             self.provider = None
-            self.health.mark_disconnected(str(exc))
-            LOGGER.info("Joystick disconnected: %s", exc)
-            LOGGER.info("Joystick health status: %s", self.health.status_text())
-            self.event_bus.publish("joystick.disconnected", {"reason": str(exc)})
+            self._mark_disconnected_once(str(exc))
             return None
 
     def normalized_axes(self, snapshot: JoystickSnapshot) -> NormalizedAxisState:

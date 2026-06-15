@@ -52,6 +52,7 @@ class JoystickToSwitcherBridge:
     joystick_dispatcher: JoystickActionDispatcher = field(init=False)
     switcher_executor: SwitcherCommandExecutor = field(init=False)
     ptz_router: PtzRouter = field(init=False)
+    _last_joystick_connected: bool = field(default=False, init=False)
 
     def __post_init__(self) -> None:
         self.state = AppState(config=self.config)
@@ -71,6 +72,7 @@ class JoystickToSwitcherBridge:
     def start(self) -> None:
         LOGGER.info("Joystick-to-switcher bridge starting dry_run=%s", self.dry_run)
         self.joystick_monitor.start()
+        self._last_joystick_connected = self.joystick_monitor.health.connected
         self._connect_switcher_safely()
         self.switcher_executor.sync_from_switcher()
         self.log_status()
@@ -88,8 +90,14 @@ class JoystickToSwitcherBridge:
     def poll_once(self) -> JoystickToSwitcherBridgeStatus:
         """Poll joystick, execute pending button actions and synchronize switcher state."""
 
+        was_joystick_connected = self._last_joystick_connected
         snapshot = self.joystick_monitor.poll()
-        self.state.joystick_connected = self.joystick_monitor.health.connected
+        joystick_connected = self.joystick_monitor.health.connected
+        self.state.joystick_connected = joystick_connected
+        if was_joystick_connected and not joystick_connected:
+            LOGGER.info("Joystick disconnected during runtime; issuing PTZ safe stop")
+            self.ptz_router.stop_all_active_motion(reason="joystick_disconnected")
+        self._last_joystick_connected = joystick_connected
 
         if not self.switcher.is_connected():
             self.switcher_executor.ensure_connected()

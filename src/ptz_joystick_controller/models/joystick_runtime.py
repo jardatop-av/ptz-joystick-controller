@@ -43,16 +43,23 @@ class JoystickHealth:
         if snapshot is not None:
             self.last_snapshot = snapshot
 
-    def mark_disconnected(self, error: str | None = None) -> None:
+    def mark_disconnected(self, error: str | None = None, *, clear_snapshot: bool = True) -> None:
         self.state = JoystickConnectionState.DISCONNECTED
         self.last_error = error
         self.device = None
         self.reconnect_attempts += 1
+        self.last_seen_at = datetime.now(timezone.utc)
+        if clear_snapshot:
+            self.last_snapshot = JoystickSnapshot()
 
-    def mark_error(self, error: str) -> None:
+    def mark_error(self, error: str, *, clear_snapshot: bool = True) -> None:
         self.state = JoystickConnectionState.ERROR
         self.last_error = error
+        self.device = None
         self.reconnect_attempts += 1
+        self.last_seen_at = datetime.now(timezone.utc)
+        if clear_snapshot:
+            self.last_snapshot = JoystickSnapshot()
 
     def update_snapshot(self, snapshot: JoystickSnapshot) -> None:
         self.last_snapshot = snapshot

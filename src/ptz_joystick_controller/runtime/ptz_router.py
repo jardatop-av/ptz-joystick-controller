@@ -139,6 +139,9 @@ class PtzRouter:
     def center_confirm_samples(self) -> int:
         return self.state.config.ptz.stop_watchdog.center_confirm_samples
 
+    def _publish_ptz_event(self, event_type: str, payload: dict[str, object]) -> None:
+        self.event_bus.publish(event_type, payload)
+
     def _main_pan_tilt_is_centered(self, pan: float, tilt: float) -> bool:
         threshold = self.pan_tilt_movement_threshold
         return abs(pan) < threshold and abs(tilt) < threshold
@@ -226,6 +229,7 @@ class PtzRouter:
                 if reason == "hat_center":
                     self.command_log.append(f"{session.camera.id}:hat_stop reason={reason}")
                 LOGGER.info("PTZ PAN/TILT STOP camera=%s reason=%s", session.camera.id, reason)
+                self._publish_ptz_event("ptz.pan_tilt_stop", {"camera_id": session.camera.id, "reason": reason})
                 if self.pan_tilt_center_samples >= self.center_confirm_samples:
                     self.command_log.append(f"{session.camera.id}:watchdog_pan_tilt_stop reason=center_confirmed")
                     LOGGER.info("PTZ WATCHDOG STOP camera=%s reason=center_confirmed", session.camera.id)
@@ -254,6 +258,10 @@ class PtzRouter:
                 session.camera.id,
                 intent.pan,
                 intent.tilt,
+            )
+            self._publish_ptz_event(
+                "ptz.pan_tilt_move",
+                {"camera_id": session.camera.id, "source": "main", "pan": intent.pan, "tilt": intent.tilt},
             )
             return True
 
@@ -284,6 +292,17 @@ class PtzRouter:
                 step.pan_speed,
                 step.tilt_speed,
             )
+            self._publish_ptz_event(
+                "ptz.pan_tilt_move",
+                {
+                    "camera_id": session.camera.id,
+                    "source": "hat",
+                    "x": x,
+                    "y": y,
+                    "pan_speed": step.pan_speed,
+                    "tilt_speed": step.tilt_speed,
+                },
+            )
             return True
 
         return False
@@ -301,6 +320,10 @@ class PtzRouter:
                 velocity.zoom,
                 velocity.speed_multiplier,
             )
+            self._publish_ptz_event(
+                "ptz.zoom_move",
+                {"camera_id": session.camera.id, "zoom": velocity.zoom, "speed_multiplier": velocity.speed_multiplier},
+            )
             return True
         if velocity.zoom != 0.0:
             LOGGER.info("PTZ ZOOM SUPPRESSED reason=below_threshold zoom=%.3f", velocity.zoom)
@@ -311,6 +334,7 @@ class PtzRouter:
             self.last_zoom_command = "stop:zoom_center"
             self.command_log.append(f"{session.camera.id}:zoom_stop reason=zoom_center")
             LOGGER.info("PTZ ZOOM STOP camera=%s reason=zoom_center", session.camera.id)
+            self._publish_ptz_event("ptz.zoom_stop", {"camera_id": session.camera.id, "reason": "zoom_center"})
             if self.zoom_center_samples >= self.center_confirm_samples:
                 self.command_log.append(f"{session.camera.id}:watchdog_zoom_stop reason=center_confirmed")
                 LOGGER.info("PTZ WATCHDOG STOP camera=%s reason=center_confirmed", session.camera.id)
@@ -388,6 +412,7 @@ class PtzRouter:
         if reason == "preview_source_changed":
             self.command_log.append(f"{camera_id}:stop reason=active_source_changed")
         LOGGER.info("PTZ STOP PREVIOUS CAMERA camera=%s reason=%s", camera_id, reason)
+        self._publish_ptz_event("ptz.stop_previous", {"camera_id": camera_id, "reason": reason})
         return sent
 
     def stop_hat(self, reason: str = "hat_center") -> bool:
@@ -406,6 +431,7 @@ class PtzRouter:
         self.command_log.append(f"{session.camera.id}:pan_tilt_stop reason={reason}")
         self.command_log.append(f"{session.camera.id}:hat_stop reason={reason}")
         LOGGER.info("PTZ PAN/TILT STOP camera=%s reason=%s", session.camera.id, reason)
+        self._publish_ptz_event("ptz.pan_tilt_stop", {"camera_id": session.camera.id, "reason": reason})
         return True
 
     def recall_preset(self, preset_number: int, *, stop_before_recall: bool = True) -> bool:
@@ -435,6 +461,7 @@ class PtzRouter:
         session.recall_preset(preset_number)
         self.command_log.append(f"{session.camera.id}:preset_recall preset={preset_number}")
         LOGGER.info("PTZ PRESET RECALL camera=%s preset=%s", session.camera.id, preset_number)
+        self._publish_ptz_event("ptz.preset_recall", {"camera_id": session.camera.id, "preset": preset_number})
         return True
 
     def stop(self, reason: str, camera_id: str | None = None) -> bool:
@@ -460,6 +487,7 @@ class PtzRouter:
             self.effective_pan_tilt_source = PanTiltSource.NONE
         self.command_log.append(f"{target_id}:stop reason={reason}")
         LOGGER.info("PTZ STOP: camera=%s reason=%s", target_id, reason)
+        self._publish_ptz_event("ptz.stop", {"camera_id": target_id, "reason": reason})
         return True
 
     def stop_all_active_motion(self, reason: str = "script_exit") -> bool:
@@ -479,6 +507,7 @@ class PtzRouter:
         self.command_log.append(f"{session.camera.id}:stop reason={reason}")
         LOGGER.info("PTZ PAN/TILT STOP camera=%s reason=%s", session.camera.id, reason)
         LOGGER.info("PTZ ZOOM STOP camera=%s reason=%s", session.camera.id, reason)
+        self._publish_ptz_event("ptz.stop_all_active_motion", {"camera_id": session.camera.id, "reason": reason})
         return True
 
     def diagnostics(self) -> PtzRouterDiagnostics:
