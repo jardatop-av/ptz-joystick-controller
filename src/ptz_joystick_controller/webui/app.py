@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from html import escape
+from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI, Request
+from fastapi.responses import HTMLResponse, JSONResponse
 
+from .config_editor import ConfigEditError, ConfigEditor
 from .status import RuntimeStatusProvider
 
 
@@ -77,8 +79,77 @@ setInterval(refresh, 1000);
 """
 
 
-def create_web_app(status_provider: RuntimeStatusProvider) -> FastAPI:
+CONFIG_HTML = """<!doctype html>
+<html lang=\"en\">
+<head>
+  <meta charset=\"utf-8\" />
+  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
+  <title>PTZ Joystick Controller Config</title>
+  <style>
+    :root { color-scheme: light dark; font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    body { margin: 0; padding: 1rem; background: Canvas; color: CanvasText; }
+    header { margin-bottom: 1rem; }
+    h1 { font-size: 1.4rem; margin: 0 0 .25rem; }
+    textarea { width: 100%; min-height: 60vh; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: .9rem; }
+    button { padding: .65rem 1rem; margin-top: .75rem; font-weight: 700; }
+    .message { margin: .75rem 0; padding: .6rem; border-radius: .5rem; border: 1px solid color-mix(in srgb, CanvasText 25%, transparent); }
+    .ok { color: #198754; }
+    .bad { color: #dc3545; white-space: pre-wrap; }
+    nav a { margin-right: .75rem; }
+  </style>
+</head>
+<body>
+<header>
+  <h1>Configuration</h1>
+  <nav><a href=\"/\">Dashboard</a></nav>
+  <p>Safe limited editor. Saves only to <code>config.local.yaml</code>. Restart required after saving.</p>
+</header>
+<div id=\"message\" class=\"message\">Loading…</div>
+<textarea id=\"config\" spellcheck=\"false\"></textarea>
+<br />
+<button id=\"save\">Save to config.local.yaml</button>
+<script>
+async function loadConfig() {
+  const r = await fetch('/api/config', {cache: 'no-store'});
+  const data = await r.json();
+  document.getElementById('config').value = JSON.stringify(data.editable_config, null, 2);
+  document.getElementById('message').textContent = 'Loaded current merged configuration.';
+  document.getElementById('message').className = 'message ok';
+}
+async function saveConfig() {
+  const box = document.getElementById('config');
+  const msg = document.getElementById('message');
+  let payload;
+  try { payload = JSON.parse(box.value); } catch (e) {
+    msg.textContent = 'Invalid JSON: ' + e;
+    msg.className = 'message bad';
+    return;
+  }
+  const r = await fetch('/config', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)});
+  const data = await r.json();
+  msg.textContent = data.message || data.error || JSON.stringify(data);
+  msg.className = 'message ' + (r.ok ? 'ok' : 'bad');
+}
+document.getElementById('save').addEventListener('click', saveConfig);
+loadConfig();
+</script>
+</body>
+</html>
+"""
+
+
+def create_web_app(
+    status_provider: RuntimeStatusProvider,
+    *,
+    config_example_path: str | Path = "config.example.yaml",
+    config_local_path: str | Path = "config.local.yaml",
+) -> FastAPI:
     app = FastAPI(title="PTZ Joystick Controller")
+    config_editor = ConfigEditor(
+        current_config=status_provider.state.config,
+        example_config_path=Path(config_example_path),
+        local_config_path=Path(config_local_path),
+    )
 
     @app.get("/health")
     def health() -> dict[str, str]:
@@ -87,6 +158,25 @@ def create_web_app(status_provider: RuntimeStatusProvider) -> FastAPI:
     @app.get("/api/status")
     def api_status() -> dict[str, Any]:
         return status_provider.status()
+
+    @app.get("/api/config")
+    def api_config() -> dict[str, Any]:
+        return {"editable_config": config_editor.editable_payload()}
+
+    @app.get("/config", response_class=HTMLResponse)
+    def config_page() -> HTMLResponse:
+        return HTMLResponse(CONFIG_HTML)
+
+    @app.post("/config")
+    async def save_config(request: Request) -> JSONResponse:
+        try:
+            payload = await request.json()
+            if not isinstance(payload, dict):
+                raise ConfigEditError("Configuration payload must be a JSON object")
+            result = config_editor.save_patch(payload)
+            return JSONResponse(result)
+        except ConfigEditError as exc:
+            return JSONResponse({"status": "error", "error": str(exc), "message": str(exc)}, status_code=400)
 
     @app.get("/", response_class=HTMLResponse)
     def dashboard() -> HTMLResponse:

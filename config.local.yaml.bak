@@ -1,0 +1,55 @@
+switcher:
+  host: 127.0.0.1
+  port: 8088
+ptz:
+  cameras:
+  - id: cam1
+    name: PTZ Camera 1
+    host: 192.168.1.110
+    port: 52381
+    enabled: true
+  - id: cam2
+    name: PTZ Camera 2
+    host: null
+    port: 52381
+    enabled: false
+joystick:
+  invert:
+    pan: false
+    tilt: true
+    zoom: false
+  output_deadzone:
+    pan_tilt: 0.05
+    zoom: 0.05
+  buttons:
+    trigger:
+      action: cut
+    thumb:
+      action: copy_program_to_preview
+    button_3:
+      action: preview_source
+      source_id: Input 1
+    button_4:
+      action: preview_source
+      source_id: Input 2
+    button_5:
+      action: preview_source
+      source_id: Input 3
+    button_6:
+      action: preview_source
+      source_id: Input 4
+    button_7:
+      action: preset_recall
+      preset_number: 1
+    button_8:
+      action: preset_recall
+      preset_number: 2
+    button_9:
+      action: preset_recall
+      preset_number: 3
+    button_10:
+      action: none
+    button_11:
+      action: none
+    button_12:
+      action: none
