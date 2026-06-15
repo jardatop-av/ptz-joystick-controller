@@ -236,6 +236,12 @@ $defs:
         default: true
         title: Enabled
         type: boolean
+      preset_offset:
+        default: 0
+        maximum: 255
+        minimum: 0
+        title: Preset Offset
+        type: integer
       invert:
         $ref: '#/$defs/AxisInvertConfig'
       speed:

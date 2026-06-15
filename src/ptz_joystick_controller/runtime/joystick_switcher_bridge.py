@@ -17,6 +17,7 @@ from .ptz_router import PtzRouter, PtzRouterDiagnostics
 from ..models.commands import CommandType
 from ..models.ptz import PtzCamera
 from ..ptz.transport import PtzTransport
+from ..switchers.factory import create_switcher
 
 LOGGER = logging.getLogger(__name__)
 
@@ -133,6 +134,62 @@ class JoystickToSwitcherBridge:
                 self.joystick_monitor.hat_step(snapshot),
             )
         return self.status()
+
+
+    def apply_config(self, new_config: ControllerConfig) -> None:
+        """Apply a validated configuration to the live runtime without process restart.
+
+        This method is intentionally conservative: it stops active PTZ motion
+        before changing any runtime objects, updates only components that are
+        config-backed, and then reconnects/synchronizes the switcher safely.
+        Validation must happen before this method is called.
+        """
+        LOGGER.info("Applying runtime configuration without process restart")
+        self.ptz_router.stop_all_active_motion(reason="config_apply")
+
+        old_program = self.state.program_source_id
+        old_preview = self.state.preview_source_id
+        old_active = self.state.active_ptz_camera_id
+
+        self.config = new_config
+        self.state.config = new_config
+        self.state.program_source_id = old_program
+        self.state.preview_source_id = old_preview
+        self.state.active_ptz_camera_id = old_active
+        self.state.recompute_active_ptz()
+
+        self.joystick_monitor.config = new_config
+        self.joystick_dispatcher = JoystickActionDispatcher(new_config, self.event_bus)
+        self.ptz_router.rebuild_sessions()
+
+        try:
+            self.switcher.disconnect()
+        except Exception:
+            LOGGER.debug("Old switcher disconnect during config apply failed", exc_info=True)
+        try:
+            self.switcher = create_switcher(new_config.switcher, offline=self.dry_run)
+        except Exception as exc:
+            # Keep the old abstraction layers safe.  If a real backend cannot be
+            # constructed, leave the existing switcher object disconnected and
+            # report the error without crashing the process.
+            self.state.switcher_connected = False
+            self.state.last_error = str(exc)
+            LOGGER.info("Switcher rebuild during config apply failed safely: %s", exc)
+        self.switcher_executor.switcher = self.switcher
+        self.switcher_executor.state = self.state
+        self.switcher_executor.preview_program = self.preview_program
+        self.switcher_executor.ptz_control = self.ptz_control
+        self.switcher_executor.dry_run = self.dry_run
+        self._connect_switcher_safely()
+        self.switcher_executor.sync_from_switcher()
+        self.event_bus.publish(
+            "config.applied",
+            {
+                "switcher_type": new_config.switcher.type,
+                "switcher_host": new_config.switcher.host,
+                "active_ptz_camera_id": self.state.active_ptz_camera_id,
+            },
+        )
 
     def status(self) -> JoystickToSwitcherBridgeStatus:
         return JoystickToSwitcherBridgeStatus(

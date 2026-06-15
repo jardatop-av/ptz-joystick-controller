@@ -29,6 +29,14 @@ class EventBus:
     def subscribe_all(self, handler: EventHandler) -> None:
         self._global_subscribers.append(handler)
 
+    def unsubscribe(self, event_type: str, handler: EventHandler) -> None:
+        if handler in self._subscribers.get(event_type, []):
+            self._subscribers[event_type].remove(handler)
+
+    def unsubscribe_all(self, handler: EventHandler) -> None:
+        if handler in self._global_subscribers:
+            self._global_subscribers.remove(handler)
+
     def publish(self, event_type: str, payload: dict[str, Any] | None = None) -> Event:
         event = Event(type=event_type, payload=payload or {})
         for handler in tuple(self._subscribers.get(event_type, [])):

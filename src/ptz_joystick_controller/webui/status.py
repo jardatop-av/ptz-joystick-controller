@@ -13,6 +13,7 @@ from ..models.switcher import SwitcherConnectionState
 from ..runtime.ptz_router import PtzRouter
 from ..switchers.base import AbstractSwitcher
 from ..version import __version__
+from .config_runtime import RuntimeConfigApplyStatus
 
 if TYPE_CHECKING:
     from ..joystick.runtime import JoystickRuntimeMonitor
@@ -39,6 +40,8 @@ class RuntimeStatusProvider:
     joystick_monitor: "JoystickRuntimeMonitor | None" = None
     switcher: AbstractSwitcher | None = None
     ptz_router: PtzRouter | None = None
+    runtime_bridge: "JoystickToSwitcherBridge | None" = None
+    config_apply_status: RuntimeConfigApplyStatus = field(default_factory=RuntimeConfigApplyStatus)
     started_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     max_recent_events: int = 20
     _recent_events: list[Event] = field(default_factory=list, init=False)
@@ -61,6 +64,7 @@ class RuntimeStatusProvider:
             joystick_monitor=bridge.joystick_monitor,
             switcher=bridge.switcher,
             ptz_router=bridge.ptz_router,
+            runtime_bridge=bridge,
             max_recent_events=max_recent_events,
         )
 
@@ -199,6 +203,17 @@ class RuntimeStatusProvider:
             for event in self._recent_events[: self.max_recent_events]
         ]
 
+    def config_status(self) -> dict[str, Any]:
+        pending = False
+        local_path = self.config_apply_status.local_config_path
+        if local_path is not None and local_path.exists():
+            try:
+                local_mtime = datetime.fromtimestamp(local_path.stat().st_mtime, timezone.utc)
+                pending = local_mtime > self.config_apply_status.loaded_at
+            except OSError:
+                pending = False
+        return self.config_apply_status.as_dict(pending_changes=pending)
+
     def status(self) -> dict[str, Any]:
         switcher = self.switcher_status()
         ptz = self.ptz_status()
@@ -214,6 +229,7 @@ class RuntimeStatusProvider:
             "ptz": ptz,
             "safety": self.safety_status(),
             "recent_activity": self.recent_activity(),
+            "config": self.config_status(),
             "preview": switcher["preview_source"],
             "program": switcher["program_source"],
             "active_ptz_camera": ptz["active_camera"],

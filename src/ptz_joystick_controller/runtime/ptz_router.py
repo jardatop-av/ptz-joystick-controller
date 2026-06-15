@@ -103,6 +103,33 @@ class PtzRouter:
         session = CameraSession(camera=camera, transport=transport)
         return RoutedPtzSession(session=session, fake_transport=fake)
 
+
+    def rebuild_sessions(self) -> None:
+        """Rebuild camera sessions/transports from the current runtime config.
+
+        Used by runtime config apply.  Movement state is cleared after a safe
+        stop has been requested by the caller, so the new sessions never
+        inherit stale movement flags from the previous camera set.
+        """
+        for routed in self.sessions.values():
+            try:
+                routed.session.transport.disconnect()
+            except Exception:
+                LOGGER.debug("PTZ transport disconnect during rebuild failed", exc_info=True)
+        self.sessions = {
+            camera.id: self._build_session(camera)
+            for camera in self.state.config.ptz.cameras
+            if camera.enabled
+        }
+        self.pan_tilt_active = False
+        self.zoom_active = False
+        self.hat_active = False
+        self.effective_pan_tilt_source = PanTiltSource.NONE
+        self.pan_tilt_center_samples = 0
+        self.zoom_center_samples = 0
+        self.command_log.append("router:rebuild_sessions")
+        LOGGER.info("PTZ router sessions rebuilt from applied configuration")
+
     @property
     def active_camera_id(self) -> str | None:
         return self.state.active_ptz_camera_id

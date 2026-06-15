@@ -1,19 +1,84 @@
+app:
+  name: PTZ Joystick Controller
+  device_name: ptz-controller-01
+  log_level: info
+  web_port: 8080
+  auto_load_last_preset: true
 switcher:
+  type: vmix
   host: 127.0.0.1
   port: 8088
+  reconnect:
+    enabled: true
+    interval_seconds: 3
+    max_backoff_seconds: 30
+sources:
+  available_mode: auto
+  mappings:
+  - source_id: Input 1
+    display_name: Camera 1
+    ptz_camera_id: cam1
+  - source_id: Input 2
+    display_name: Camera 2
+    ptz_camera_id: cam2
+  - source_id: Input 3
+    display_name: Unmapped Input 3
+    ptz_camera_id: null
+  - source_id: Input 4
+    display_name: Unmapped Input 4
+    ptz_camera_id: null
 ptz:
+  protocol: visca_over_ip
+  default_port: 52381
+  stop_on_switch: true
+  stop_watchdog:
+    enabled: true
+    timeout_ms: 500
+    center_confirm_samples: 3
   cameras:
   - id: cam1
     name: PTZ Camera 1
     host: 192.168.1.110
     port: 52381
+    visca_id: 1
     enabled: true
+    invert:
+      pan: false
+      tilt: false
+      zoom: false
+    speed:
+      pan_min: 1
+      pan_max: 24
+      tilt_min: 1
+      tilt_max: 20
+      zoom_min: 1
+      zoom_max: 7
+    preset_offset: 0
   - id: cam2
     name: PTZ Camera 2
-    host: null
+    host: 192.168.1.111
     port: 52381
-    enabled: false
+    visca_id: 1
+    enabled: true
+    invert:
+      pan: false
+      tilt: false
+      zoom: false
+    speed:
+      pan_min: 1
+      pan_max: 24
+      tilt_min: 1
+      tilt_max: 20
+      zoom_min: 1
+      zoom_max: 7
+    preset_offset: 0
 joystick:
+  type: logitech_extreme_3d_pro
+  device_path: auto
+  deadzone:
+    pan: 0.08
+    tilt: 0.08
+    zoom: 0.1
   invert:
     pan: false
     tilt: true
@@ -21,6 +86,14 @@ joystick:
   output_deadzone:
     pan_tilt: 0.05
     zoom: 0.05
+  throttle:
+    min_multiplier: 0.2
+    max_multiplier: 1.0
+    invert: true
+  hat:
+    fine_pan_speed: 2
+    fine_tilt_speed: 2
+    apply_throttle: false
   buttons:
     trigger:
       action: cut
@@ -53,3 +126,27 @@ joystick:
       action: none
     button_12:
       action: none
+network:
+  management_enabled: false
+  interface: eth0
+  mode: dhcp
+  static:
+    address: null
+    netmask: null
+    gateway: null
+    dns: []
+  safe_rollback:
+    enabled: false
+    timeout_seconds: 120
+discovery:
+  enabled: false
+  ndi: false
+  atem: false
+  vmix: false
+  osee: false
+webui:
+  enabled: true
+  listen_host: 127.0.0.1
+  listen_port: 8080
+  websocket_updates: false
+  emergency_controls: false

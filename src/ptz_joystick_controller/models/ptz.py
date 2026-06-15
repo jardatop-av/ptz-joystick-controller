@@ -26,6 +26,7 @@ class PtzCamera(BaseModel):
     port: int = Field(default=DEFAULT_VISCA_PORT, ge=1, le=65535)
     visca_id: int = Field(default=1, ge=1, le=7)
     enabled: bool = True
+    preset_offset: int = Field(default=0, ge=0, le=255)
     invert: AxisInvertConfig = Field(default_factory=AxisInvertConfig)
     speed: PtzSpeedConfig = Field(default_factory=PtzSpeedConfig)
 
