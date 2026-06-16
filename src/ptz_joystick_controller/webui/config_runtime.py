@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ..config import ControllerConfig, ConfigError, load_config
+from .config_editor import ConfigEditError, validate_enabled_ptz_camera_hosts_in_mapping
 
 if TYPE_CHECKING:  # pragma: no cover
     from .status import RuntimeStatusProvider
@@ -53,6 +54,16 @@ class RuntimeConfigApplier:
         return local_mtime > self.status.loaded_at
 
     def load_validated_config(self) -> ControllerConfig:
+        if self.local_config_path.exists():
+            import yaml
+
+            local_data = yaml.safe_load(self.local_config_path.read_text(encoding="utf-8")) or {}
+            if not isinstance(local_data, dict):
+                raise ConfigError("Config root must be a mapping")
+            try:
+                validate_enabled_ptz_camera_hosts_in_mapping(local_data)
+            except ConfigEditError as exc:
+                raise ConfigError(str(exc)) from exc
         return load_config(self.example_config_path, local_path=self.local_config_path)
 
     def apply_loaded_config(self, new_config: ControllerConfig) -> dict[str, object]:

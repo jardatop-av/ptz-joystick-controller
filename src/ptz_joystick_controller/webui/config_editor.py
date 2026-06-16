@@ -28,6 +28,39 @@ class ConfigEditError(ValueError):
     """Raised when a web configuration edit is invalid."""
 
 
+def validate_enabled_ptz_camera_hosts(config: ControllerConfig) -> None:
+    """Require hosts for cameras explicitly enabled in web-edited config."""
+
+    for camera in config.ptz.cameras:
+        if camera.enabled and not (camera.host or "").strip():
+            raise ConfigEditError(f"Camera {camera.id} is enabled but host is empty.")
+
+
+def validate_enabled_ptz_camera_hosts_in_mapping(data: Mapping[str, Any]) -> None:
+    """Validate raw/local YAML data before applying user-edited camera state.
+
+    Generic config.example.yaml may contain hardware placeholders.  The strict
+    rule is enforced for user-edited/local camera entries that explicitly set
+    enabled=true without a host.
+    """
+
+    ptz = data.get("ptz")
+    if not isinstance(ptz, Mapping):
+        return
+    cameras = ptz.get("cameras")
+    if not isinstance(cameras, list):
+        return
+    for camera in cameras:
+        if not isinstance(camera, Mapping):
+            continue
+        enabled = camera.get("enabled")
+        if enabled is True or str(enabled).lower() in {"1", "true", "yes", "on"}:
+            host = camera.get("host")
+            if host is None or str(host).strip() == "":
+                camera_id = str(camera.get("id", "<unknown>"))
+                raise ConfigEditError(f"Camera {camera_id} is enabled but host is empty.")
+
+
 class EditableSwitcherConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -54,6 +87,12 @@ class EditablePtzCameraConfig(BaseModel):
     @classmethod
     def validate_host(cls, value: str | None) -> str | None:
         return _validate_optional_host(value)
+
+    @model_validator(mode="after")
+    def require_host_when_enabled(self) -> "EditablePtzCameraConfig":
+        if self.enabled and not self.host:
+            raise ValueError(f"Camera {self.id} is enabled but host is empty.")
+        return self
 
 
 class EditableAxisInvertConfig(BaseModel):
@@ -149,7 +188,10 @@ class ConfigEditor:
                         "name": camera.name,
                         "host": camera.host,
                         "port": camera.port,
-                        "enabled": camera.enabled,
+                        # Empty-host example cameras are shown as disabled in
+                        # the editor.  If the user explicitly enables one, the
+                        # save validator requires a host before writing/apply.
+                        "enabled": bool(camera.enabled and camera.host),
                         "preset_offset": getattr(camera, "preset_offset", 0),
                     }
                     for camera in self.current_config.ptz.cameras
@@ -187,6 +229,13 @@ class ConfigEditor:
         try:
             return EditableConfigPatch.model_validate(patch_data)
         except ValidationError as exc:
+            # Flatten common camera validation errors into a concise message for
+            # the web form while preserving full details for other validation
+            # failures.
+            for error in exc.errors():
+                message = str(error.get("msg", ""))
+                if "Camera " in message and "is enabled but host is empty" in message:
+                    raise ConfigEditError(message.replace("Value error, ", "")) from exc
             raise ConfigEditError(str(exc)) from exc
 
     def patch_to_local_override(self, patch: EditableConfigPatch) -> dict[str, Any]:
@@ -206,7 +255,10 @@ class ConfigEditor:
                         "name": camera.name,
                         "host": camera.host,
                         "port": camera.port,
-                        "enabled": camera.enabled,
+                        # Empty-host example cameras are shown as disabled in
+                        # the editor.  If the user explicitly enables one, the
+                        # save validator requires a host before writing/apply.
+                        "enabled": bool(camera.enabled and camera.host),
                         "preset_offset": camera.preset_offset,
                     }
                     for camera in patch.ptz.cameras
@@ -221,6 +273,19 @@ class ConfigEditor:
                 },
             },
         }
+
+
+    def patch_to_local_override_unvalidated(self, raw_patch: dict[str, Any]) -> dict[str, Any]:
+        data = _strip_non_editable_metadata(raw_patch)
+        buttons = data.get("joystick", {}).get("buttons", {}) if isinstance(data.get("joystick"), dict) else {}
+        if isinstance(buttons, dict):
+            clean_buttons: dict[str, Any] = {}
+            for button_id, mapping in buttons.items():
+                if isinstance(mapping, dict):
+                    clean = {key: value for key, value in mapping.items() if key in {"action", "source_id", "preset_number"}}
+                    clean_buttons[str(button_id)] = clean
+            data.setdefault("joystick", {})["buttons"] = clean_buttons
+        return data
 
     def form_payload_from_mapping(self, form: Mapping[str, Any]) -> dict[str, Any]:
         data = {key: str(value) for key, value in form.items()}
@@ -300,7 +365,16 @@ class ConfigEditor:
         # previous action can survive when the form changes the action to none
         # or to another action type.
         merged.setdefault("joystick", {})["buttons"] = controlled_update["joystick"]["buttons"]
-        parsed_config = parse_config(merged)
+        try:
+            parsed_config = parse_config(merged)
+        except ConfigError as exc:
+            message = str(exc)
+            if "Camera " in message and "is enabled but host is empty" in message:
+                marker = "Camera "
+                tail = message[message.find(marker):]
+                sentence = tail.split("\n", 1)[0].replace("Value error, ", "")
+                raise ConfigEditError(sentence) from exc
+            raise ConfigEditError(message) from exc
 
         _backup_local_config(self.local_config_path)
         serialized = yaml.safe_dump(merged, sort_keys=False, allow_unicode=True)

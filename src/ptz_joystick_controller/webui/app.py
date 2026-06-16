@@ -123,7 +123,11 @@ def render_config_html(config_editor: ConfigEditor, *, message: str = "") -> str
     joystick = payload["joystick"]
     cameras = ptz["cameras"]
     buttons = joystick["buttons"]
-    raw_yaml = yaml.safe_dump(config_editor.patch_to_local_override(config_editor.validate_patch(payload)), sort_keys=False, allow_unicode=True)
+    # Render the raw editor from the currently loaded configuration without
+    # applying save-time validation. Generic example configs may intentionally
+    # contain disabled/incomplete hardware placeholders; validation runs on
+    # submit before writing config.local.yaml.
+    raw_yaml = yaml.safe_dump(config_editor.patch_to_local_override_unvalidated(payload), sort_keys=False, allow_unicode=True)
 
     camera_rows = []
     for index, camera in enumerate(cameras):
@@ -297,7 +301,7 @@ def create_web_app(
                 config_editor.current_config = status_provider.state.config
                 return HTMLResponse(render_config_html(config_editor, message=str(apply_result["message"])))
             return HTMLResponse(render_config_html(config_editor, message=result["message"]))
-        except ConfigEditError as exc:
+        except (ConfigEditError, ConfigError) as exc:
             if request.headers.get("content-type", "").startswith("application/json"):
                 return JSONResponse({"status": "error", "error": str(exc), "message": str(exc)}, status_code=400)
             return HTMLResponse(render_config_html(config_editor, message=str(exc)), status_code=400)
@@ -323,7 +327,7 @@ def create_web_app(
                 config_editor.current_config = status_provider.state.config
                 return HTMLResponse(render_config_html(config_editor, message=str(apply_result["message"])))
             return HTMLResponse(render_config_html(config_editor, message=result["message"]))
-        except (ConfigEditError, yaml.YAMLError) as exc:
+        except (ConfigEditError, ConfigError, yaml.YAMLError) as exc:
             if request.headers.get("content-type", "").startswith("application/json"):
                 return JSONResponse({"status": "error", "error": str(exc), "message": str(exc)}, status_code=400)
             return HTMLResponse(render_config_html(config_editor, message=str(exc)), status_code=400)
@@ -336,7 +340,7 @@ def create_web_app(
                 raise ConfigEditError("Configuration payload must be a JSON object")
             result = config_editor.save_patch(payload)
             return JSONResponse(result)
-        except ConfigEditError as exc:
+        except (ConfigEditError, ConfigError) as exc:
             return JSONResponse({"status": "error", "error": str(exc), "message": str(exc)}, status_code=400)
 
     @app.get("/", response_class=HTMLResponse)
