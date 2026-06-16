@@ -11,6 +11,7 @@ venv/
 # Local configuration
 config.local.yaml
 config.local.yaml.bak
+ptz_bug_log.txt
 
 # Runtime logs
 data/logs/
