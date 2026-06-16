@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from enum import StrEnum
 
 
@@ -47,3 +48,4 @@ class PtzCommandLogEntry:
     camera_id: str
     command: ViscaCommand
     packet: bytes
+    sent_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))

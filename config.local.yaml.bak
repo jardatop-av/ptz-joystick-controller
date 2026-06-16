@@ -59,7 +59,7 @@ ptz:
     host: 192.168.1.111
     port: 52381
     visca_id: 1
-    enabled: true
+    enabled: false
     invert:
       pan: false
       tilt: false

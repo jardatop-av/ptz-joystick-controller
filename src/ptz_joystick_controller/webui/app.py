@@ -17,6 +17,8 @@ from ..models.joystick import ButtonAction
 from .status import RuntimeStatusProvider
 
 
+NAV_HTML = '<nav class="topnav"><a href="/">Dashboard</a> | <a href="/config">Config</a> | <a href="/diagnostics">Diagnostics</a></nav>'
+
 DASHBOARD_HTML = """<!doctype html>
 <html lang=\"en\">
 <head>
@@ -27,6 +29,8 @@ DASHBOARD_HTML = """<!doctype html>
     :root { color-scheme: light dark; font-family: system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif; }
     body { margin: 0; padding: 1rem; background: Canvas; color: CanvasText; }
     header { margin-bottom: 1rem; }
+    .topnav { margin: 0 0 1rem; }
+    .topnav a { margin-right: .5rem; }
     h1 { font-size: 1.4rem; margin: 0 0 .25rem; }
     .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: .75rem; }
     section { border: 1px solid color-mix(in srgb, CanvasText 25%, transparent); border-radius: .75rem; padding: .85rem; background: color-mix(in srgb, Canvas 92%, CanvasText 8%); }
@@ -43,6 +47,7 @@ DASHBOARD_HTML = """<!doctype html>
 </head>
 <body>
 <header>
+  <nav class="topnav"><a href="/">Dashboard</a> | <a href="/config">Config</a> | <a href="/diagnostics">Diagnostics</a></nav>
   <h1 id=\"title\">PTZ Joystick Controller</h1>
   <div id=\"subtitle\" class=\"mono\">Loading…</div>
 </header>
@@ -52,6 +57,7 @@ DASHBOARD_HTML = """<!doctype html>
   <section><h2>Switcher</h2><dl id=\"switcher\"></dl></section>
   <section><h2>PTZ</h2><dl id=\"ptz\"></dl></section>
   <section><h2>Safety</h2><dl id=\"safety\"></dl></section>
+  <section><h2>Config</h2><dl id=\"config\"></dl></section>
   <section><h2>Configured Cameras</h2><ul id=\"cameras\"></ul></section>
   <section><h2>Recent activity</h2><ul id=\"events\"></ul></section>
 </div>
@@ -59,23 +65,25 @@ DASHBOARD_HTML = """<!doctype html>
 function dtdd(key, value) { return `<dt>${key}</dt><dd>${value ?? ''}</dd>`; }
 function boolBadge(value) { return value ? '<span class=\"ok\">connected</span>' : '<span class=\"bad\">disconnected</span>'; }
 function seconds(value) { return `${Math.round(value)} s`; }
-function setList(id, rows) { document.getElementById(id).innerHTML = rows.join(''); }
+function byId(id) { return document.getElementById(id); }
+function setList(id, rows) { const el = byId(id); if (el) el.innerHTML = rows.join(''); }
+function setHtml(id, html) { const el = byId(id); if (el) el.innerHTML = html; }
 async function refresh() {
   try {
     const r = await fetch('/api/status', {cache: 'no-store'});
     const s = await r.json();
-    document.getElementById('title').textContent = s.system.application_name;
-    document.getElementById('subtitle').textContent = `${s.system.stage} / ${s.system.version} / uptime ${seconds(s.uptime)}`;
+    const title = byId('title'); if (title) title.textContent = s.system.application_name;
+    const subtitle = byId('subtitle'); if (subtitle) subtitle.textContent = `${s.system.stage} / ${s.system.version} / uptime ${seconds(s.uptime)}`;
     setList('system', [dtdd('Application', s.system.application_name), dtdd('Version', s.system.version), dtdd('Stage', s.system.stage), dtdd('Uptime', seconds(s.uptime))]);
     setList('joystick', [dtdd('Status', boolBadge(s.joystick.connected)), dtdd('Device', s.joystick.device_name), dtdd('Buttons', (s.joystick.pressed_buttons || []).join(', ') || 'none'), dtdd('Hat', `${s.joystick.hat.direction} (${s.joystick.hat.x}, ${s.joystick.hat.y})`), dtdd('Pan/Tilt/Zoom', `${s.joystick.normalized_axes.pan} / ${s.joystick.normalized_axes.tilt} / ${s.joystick.normalized_axes.zoom}`)]);
     setList('switcher', [dtdd('Status', boolBadge(s.switcher.connected)), dtdd('Type', s.switcher.type), dtdd('Program', s.program), dtdd('Preview', s.preview)]);
     setList('ptz', [dtdd('Active camera', s.active_ptz_camera), dtdd('Moving', s.ptz.moving), dtdd('Pan/Tilt active', s.ptz.pan_tilt_active), dtdd('Zoom active', s.ptz.zoom_active), dtdd('Hat active', s.ptz.hat_active), dtdd('Last action', s.ptz.last_action)]);
     setList('safety', [dtdd('Watchdog', s.safety.watchdog_enabled), dtdd('Center samples', s.safety.center_confirm_samples), dtdd('Output deadzone', `pan/tilt=${s.safety.output_deadzone.pan_tilt}, zoom=${s.safety.output_deadzone.zoom}`)]);
     setList('config', [dtdd('Loaded at', s.config?.loaded_at), dtdd('Pending changes', s.config?.pending_changes), dtdd('Last apply', s.config?.last_apply_result || 'none'), dtdd('Last error', s.config?.last_apply_error || '')]);
-    document.getElementById('cameras').innerHTML = (s.ptz.configured_cameras || []).map(c => `<li>${c.active ? '▶ ' : ''}${c.name} (${c.id}) — ${c.enabled ? 'enabled' : 'disabled'} ${c.host || ''}</li>`).join('') || '<li>none</li>';
-    document.getElementById('events').innerHTML = (s.recent_activity || []).map(e => `<li><span class=\"mono\">${e.created_at}</span> ${e.type}</li>`).join('') || '<li>none</li>';
+    setHtml('cameras', (s.ptz.configured_cameras || []).map(c => `<li>${c.active ? '▶ ' : ''}${c.name} (${c.id}) — ${c.enabled ? 'enabled' : 'disabled'} ${c.host || ''}</li>`).join('') || '<li>none</li>');
+    setHtml('events', (s.recent_activity || []).map(e => `<li><span class=\"mono\">${e.created_at}</span> ${e.type}</li>`).join('') || '<li>none</li>');
   } catch (e) {
-    document.getElementById('subtitle').textContent = `Status refresh failed: ${e}`;
+    const subtitle = byId('subtitle'); if (subtitle) subtitle.textContent = `Status refresh failed: ${e}`;
   }
 }
 refresh();
@@ -85,6 +93,78 @@ setInterval(refresh, 1000);
 </html>
 """
 
+
+
+DIAGNOSTICS_HTML = """<!doctype html>
+<html lang=\"en\">
+<head>
+  <meta charset=\"utf-8\" />
+  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
+  <title>PTZ Joystick Controller Diagnostics</title>
+  <style>
+    :root { color-scheme: light dark; font-family: system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif; }
+    body { margin: 0; padding: 1rem; background: Canvas; color: CanvasText; }
+    .topnav { margin-bottom: 1rem; }
+    .topnav a { margin-right: .5rem; }
+    h1 { font-size: 1.4rem; margin: 0 0 1rem; }
+    h2 { font-size: 1.05rem; margin: 0 0 .5rem; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: .75rem; }
+    section { border: 1px solid color-mix(in srgb, CanvasText 25%, transparent); border-radius: .75rem; padding: .85rem; background: color-mix(in srgb, Canvas 92%, CanvasText 8%); min-width: 0; }
+    .table-wrap { overflow-x: auto; max-width: 100%; }
+    table { width: 100%; border-collapse: collapse; font-size: .88rem; table-layout: fixed; }
+    th, td { border-bottom: 1px solid color-mix(in srgb, CanvasText 18%, transparent); padding: .25rem; text-align: left; vertical-align: top; overflow-wrap: anywhere; word-break: break-word; }
+    td.mono, .hex, .details { overflow-wrap: anywhere; word-break: break-word; white-space: pre-wrap; }
+    dl { display: grid; grid-template-columns: max-content 1fr; gap: .25rem .7rem; margin: 0; }
+    dt { opacity: .7; } dd { margin: 0; overflow-wrap: anywhere; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: .86rem; }
+    .ok { color: #198754; font-weight: 700; } .bad { color: #dc3545; font-weight: 700; }
+    @media (max-width: 620px) { body { padding: .6rem; } .grid { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+<nav class="topnav"><a href="/">Dashboard</a> | <a href="/config">Config</a> | <a href="/diagnostics">Diagnostics</a></nav>
+<h1>Runtime Diagnostics</h1>
+<div class=\"grid\">
+  <section><h2>Joystick diagnostics</h2><dl id=\"joystick\"></dl></section>
+  <section><h2>Switcher diagnostics</h2><dl id=\"switcher\"></dl></section>
+  <section><h2>PTZ diagnostics</h2><div class="table-wrap"><table><thead><tr><th>Time</th><th>Camera</th><th>Action</th><th>Details</th></tr></thead><tbody id=\"ptz\"></tbody></table></div></section>
+  <section><h2>VISCA diagnostics</h2><div class="table-wrap"><table><thead><tr><th>Time</th><th>Target</th><th>Dir</th><th>Hex payload</th></tr></thead><tbody id=\"visca\"></tbody></table></div></section>
+  <section style=\"grid-column: 1 / -1\"><h2>Runtime log</h2><div class="table-wrap"><table><thead><tr><th>Time</th><th>Level</th><th>Event</th><th>Details</th></tr></thead><tbody id=\"runtime\"></tbody></table></div></section>
+</div>
+<script>
+function esc(v) { return String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\"/g, '&quot;'); }
+function dtdd(k, v) { return `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`; }
+function badge(v) { return v ? '<span class=\"ok\">connected</span>' : '<span class=\"bad\">disconnected</span>'; }
+function shortTime(ts) { return ts ? esc(ts).replace('T', ' ').replace('+00:00', 'Z') : ''; }
+function json(v) { try { return esc(JSON.stringify(v)); } catch { return esc(v); } }
+async function refreshDiagnostics() {
+  try {
+    const r = await fetch('/api/diagnostics', {cache: 'no-store'});
+    const d = await r.json();
+    const j = d.joystick || {};
+    document.getElementById('joystick').innerHTML = [
+      dtdd('State', j.connected ? 'connected' : 'disconnected'), dtdd('Device', j.device_name), dtdd('Raw axes', json(j.raw_axes)),
+      dtdd('Normalized axes', json(j.normalized_axes)), dtdd('Output deadzone', json((d.ptz || {}).output_deadzone || 'see status')),
+      dtdd('Hat', `${j.hat?.direction || 'center'} (${j.hat?.x || 0}, ${j.hat?.y || 0})`),
+      dtdd('Buttons', (j.pressed_buttons || []).join(', ') || 'none'), dtdd('Last seen/error', `${j.last_seen_at || ''} ${j.last_error || ''}`)
+    ].join('');
+    const s = d.switcher || {};
+    document.getElementById('switcher').innerHTML = [
+      dtdd('State', s.connected ? 'connected' : 'disconnected'), dtdd('Type', s.type), dtdd('Preview', s.preview_source), dtdd('Program', s.program_source),
+      dtdd('Last sync', s.last_sync_time), dtdd('Last HTTP error', s.last_http_error), dtdd('Last command', s.last_command)
+    ].join('');
+    document.getElementById('ptz').innerHTML = (d.ptz_actions || []).map(a => `<tr><td class=\"mono\">${shortTime(a.timestamp)}</td><td>${esc(a.camera_id)}</td><td>${esc(a.action_type)}</td><td class=\"mono\">${json(a.details)}</td></tr>`).join('') || '<tr><td colspan=\"4\">No PTZ actions</td></tr>';
+    document.getElementById('visca').innerHTML = (d.visca_packets || []).map(p => `<tr><td class=\"mono\">${shortTime(p.timestamp)}</td><td>${esc(p.host)}:${esc(p.port)}</td><td>${esc(p.direction)}</td><td class=\"mono\">${esc(p.hex_payload)}</td></tr>`).join('') || '<tr><td colspan=\"4\">No VISCA packets</td></tr>';
+    document.getElementById('runtime').innerHTML = (d.runtime_events || []).map(e => `<tr><td class=\"mono\">${shortTime(e.timestamp)}</td><td>${esc(e.level)}</td><td>${esc(e.event_type || e.type)}</td><td class=\"mono\">${json(e.details)}</td></tr>`).join('') || '<tr><td colspan=\"4\">No runtime events</td></tr>';
+  } catch (e) {
+    document.getElementById('runtime').innerHTML = `<tr><td colspan=\"4\">Diagnostics refresh failed: ${esc(e)}</td></tr>`;
+  }
+}
+refreshDiagnostics();
+setInterval(refreshDiagnostics, 1000);
+</script>
+</body>
+</html>"""
 
 
 BUTTON_ACTION_OPTIONS = (
@@ -181,14 +261,15 @@ def render_config_html(config_editor: ConfigEditor, *, message: str = "") -> str
     .message {{ margin: .75rem 0; padding: .6rem; border-radius: .5rem; border: 1px solid color-mix(in srgb, CanvasText 25%, transparent); }}
     .ok {{ color: #198754; }}
     .bad {{ color: #dc3545; white-space: pre-wrap; }}
-    nav a {{ margin-right: .75rem; }}
+    .topnav {{ margin: 0 0 1rem; }}
+    .topnav a {{ margin-right: .75rem; }}
     @media (max-width: 700px) {{ body {{ padding: .6rem; }} th, td {{ min-width: 7rem; }} }}
   </style>
 </head>
 <body>
 <header>
+  {NAV_HTML}
   <h1>Configuration</h1>
-  <nav><a href="/">Dashboard</a></nav>
   <p>Safe limited editor. Saves only to <code>config.local.yaml</code>. Never overwrites <code>config.example.yaml</code>.</p>
 </header>
 <div id="message" class="message ok">{escape(status_message)}</div>
@@ -267,6 +348,10 @@ def create_web_app(
     def api_status() -> dict[str, Any]:
         return status_provider.status()
 
+    @app.get("/api/diagnostics")
+    def api_diagnostics() -> dict[str, Any]:
+        return status_provider.diagnostics()
+
     @app.get("/api/config")
     def api_config() -> dict[str, Any]:
         return {"editable_config": config_editor.editable_payload()}
@@ -342,6 +427,10 @@ def create_web_app(
             return JSONResponse(result)
         except (ConfigEditError, ConfigError) as exc:
             return JSONResponse({"status": "error", "error": str(exc), "message": str(exc)}, status_code=400)
+
+    @app.get("/diagnostics", response_class=HTMLResponse)
+    def diagnostics_page() -> HTMLResponse:
+        return HTMLResponse(DIAGNOSTICS_HTML)
 
     @app.get("/", response_class=HTMLResponse)
     def dashboard() -> HTMLResponse:

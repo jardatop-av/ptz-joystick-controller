@@ -27,12 +27,7 @@ except ImportError:  # pragma: no cover - compatibility for older archives
 
 @dataclass
 class RuntimeStatusProvider:
-    """Build read-only web status from live runtime state objects.
-
-    The provider intentionally does not parse log files. Runtime producers may
-    publish events into the EventBus and update AppState/JoystickHealth/etc.;
-    this class only formats those objects for the read-only dashboard.
-    """
+    """Build read-only web status/diagnostics from live runtime state objects."""
 
     state: AppState
     event_bus: EventBus | None = None
@@ -44,19 +39,16 @@ class RuntimeStatusProvider:
     config_apply_status: RuntimeConfigApplyStatus = field(default_factory=RuntimeConfigApplyStatus)
     started_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     max_recent_events: int = 20
+    max_diagnostic_events: int = 100
+    max_ptz_actions: int = 50
+    max_visca_packets: int = 50
     _recent_events: list[Event] = field(default_factory=list, init=False)
-
+    _diagnostic_events: list[Event] = field(default_factory=list, init=False)
+    _ptz_actions: list[dict[str, Any]] = field(default_factory=list, init=False)
 
     @classmethod
     def from_bridge(cls, bridge: "JoystickToSwitcherBridge", *, max_recent_events: int = 20) -> "RuntimeStatusProvider":
-        """Create a status provider backed by a live runtime bridge.
-
-        This intentionally stores references to the live state objects instead
-        of copying values. Every /api/status request therefore reflects the
-        latest joystick, switcher, preview/program and PTZ router state without
-        restarting the dashboard process.
-        """
-
+        """Create a status provider backed by a live runtime bridge."""
         return cls(
             state=bridge.state,
             event_bus=bridge.event_bus,
@@ -75,6 +67,11 @@ class RuntimeStatusProvider:
     def record_event(self, event: Event) -> None:
         self._recent_events.insert(0, event)
         del self._recent_events[self.max_recent_events :]
+        self._diagnostic_events.insert(0, event)
+        del self._diagnostic_events[self.max_diagnostic_events :]
+        if event.type.startswith("ptz."):
+            self._ptz_actions.insert(0, self._event_to_ptz_action(event))
+            del self._ptz_actions[self.max_ptz_actions :]
 
     @property
     def uptime_seconds(self) -> float:
@@ -94,6 +91,10 @@ class RuntimeStatusProvider:
             "throttle": round(normalized.throttle, 4),
         }
 
+    def _raw_axes(self) -> dict[str, int]:
+        axes = self.joystick_health.last_snapshot.axes
+        return {"pan": axes.pan, "tilt": axes.tilt, "zoom": axes.zoom, "throttle": axes.throttle}
+
     def joystick_status(self) -> dict[str, Any]:
         snapshot = self.joystick_health.last_snapshot
         device = self.joystick_health.device
@@ -104,13 +105,11 @@ class RuntimeStatusProvider:
             "device_path": device.path if device is not None else None,
             "backend": device.backend if device is not None else None,
             "pressed_buttons": sorted(snapshot.pressed_buttons),
-            "hat": {
-                "x": snapshot.hat.x,
-                "y": snapshot.hat.y,
-                "direction": snapshot.hat.direction.value,
-            },
+            "hat": {"x": snapshot.hat.x, "y": snapshot.hat.y, "direction": snapshot.hat.direction.value},
+            "raw_axes": self._raw_axes(),
             "normalized_axes": self._normalized_axes(),
             "last_error": self.joystick_health.last_error,
+            "last_seen_at": self.joystick_health.last_seen_at.isoformat() if self.joystick_health.last_seen_at else None,
         }
 
     def switcher_status(self) -> dict[str, Any]:
@@ -122,8 +121,12 @@ class RuntimeStatusProvider:
                 "message": None,
                 "program_source": self.state.program_source_id,
                 "preview_source": self.state.preview_source_id,
+                "last_http_error": None,
+                "last_sync_time": None,
+                "last_command": None,
             }
         status = self.switcher.get_status()
+        transition_log = getattr(self.switcher, "transition_log", None)
         return {
             "connected": self.switcher.is_connected(),
             "state": status.state.value,
@@ -131,6 +134,9 @@ class RuntimeStatusProvider:
             "message": status.message,
             "program_source": self.switcher.get_program_source() or self.state.program_source_id,
             "preview_source": self.switcher.get_preview_source() or self.state.preview_source_id,
+            "last_http_error": getattr(self.switcher, "last_error", None),
+            "last_sync_time": getattr(self.switcher, "last_sync_at", None),
+            "last_command": transition_log[-1] if transition_log else None,
         }
 
     def ptz_status(self) -> dict[str, Any]:
@@ -189,19 +195,73 @@ class RuntimeStatusProvider:
             return {str(key): self._json_safe(item) for key, item in value.items()}
         if isinstance(value, (list, tuple, set, frozenset)):
             return [self._json_safe(item) for item in value]
+        if isinstance(value, bytes):
+            return value.hex(" ")
         if isinstance(value, (str, int, float, bool)) or value is None:
             return value
         return str(value)
 
+    def _event_row(self, event: Event) -> dict[str, Any]:
+        payload = self._json_safe(event.payload)
+        level = "info"
+        message = ""
+        if isinstance(payload, dict):
+            level = str(payload.get("level") or payload.get("severity") or "info")
+            message = str(payload.get("message") or payload.get("reason") or "")
+        return {
+            "timestamp": event.created_at.isoformat(),
+            "created_at": event.created_at.isoformat(),
+            "level": level,
+            "type": event.type,
+            "event_type": event.type,
+            "message": message,
+            "details": payload,
+            "payload": payload,
+        }
+
     def recent_activity(self) -> list[dict[str, Any]]:
-        return [
-            {
-                "type": event.type,
-                "payload": self._json_safe(event.payload),
-                "created_at": event.created_at.isoformat(),
-            }
-            for event in self._recent_events[: self.max_recent_events]
-        ]
+        return [self._event_row(event) for event in self._recent_events[: self.max_recent_events]]
+
+    def runtime_events(self) -> list[dict[str, Any]]:
+        return [self._event_row(event) for event in self._diagnostic_events[: self.max_diagnostic_events]]
+
+    def _event_to_ptz_action(self, event: Event) -> dict[str, Any]:
+        payload = self._json_safe(event.payload)
+        details = payload if isinstance(payload, dict) else {}
+        return {
+            "timestamp": event.created_at.isoformat(),
+            "camera_id": details.get("camera_id"),
+            "action_type": event.type,
+            "pan": details.get("pan"),
+            "tilt": details.get("tilt"),
+            "zoom": details.get("zoom"),
+            "reason": details.get("reason"),
+            "details": details,
+        }
+
+    def ptz_actions(self) -> list[dict[str, Any]]:
+        return list(self._ptz_actions[: self.max_ptz_actions])
+
+    def visca_packets(self) -> list[dict[str, Any]]:
+        if self.ptz_router is None:
+            return []
+        rows: list[dict[str, Any]] = []
+        for camera_id, routed in self.ptz_router.sessions.items():
+            camera = routed.session.camera
+            for entry in routed.session.command_log:
+                rows.append(
+                    {
+                        "timestamp": getattr(entry, "sent_at", datetime.now(timezone.utc)).isoformat(),
+                        "camera_id": camera_id,
+                        "host": camera.host,
+                        "port": camera.port,
+                        "direction": "send",
+                        "hex_payload": entry.packet.hex(" ").upper(),
+                        "command": entry.command.description,
+                    }
+                )
+        rows.sort(key=lambda row: str(row["timestamp"]), reverse=True)
+        return rows[: self.max_visca_packets]
 
     def config_status(self) -> dict[str, Any]:
         pending = False
@@ -213,6 +273,16 @@ class RuntimeStatusProvider:
             except OSError:
                 pending = False
         return self.config_apply_status.as_dict(pending_changes=pending)
+
+    def diagnostics(self) -> dict[str, Any]:
+        return {
+            "runtime_events": self.runtime_events(),
+            "ptz_actions": self.ptz_actions(),
+            "visca_packets": self.visca_packets(),
+            "joystick": self.joystick_status(),
+            "switcher": self.switcher_status(),
+            "ptz": self.ptz_status(),
+        }
 
     def status(self) -> dict[str, Any]:
         switcher = self.switcher_status()
