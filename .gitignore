@@ -1,7 +1,28 @@
-.pytest_cache/
+# Python
 __pycache__/
 *.pyc
-.venv/
-data/logs/
+*.pyo
+.pytest_cache/
 
+# Virtual environment
+.venv/
+venv/
+
+# Local configuration
 config.local.yaml
+config.local.yaml.bak
+
+# Runtime logs
+data/logs/
+*.log
+
+# IDE
+.vscode/
+.idea/
+
+# Windows
+Thumbs.db
+Desktop.ini
+
+# macOS
+.DS_Store
