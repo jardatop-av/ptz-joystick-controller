@@ -46,6 +46,16 @@ class FakeEvdevDevice:
         return events
 
 
+class LazyBlockingIterator:
+    def __iter__(self):
+        raise BlockingIOError(errno.EAGAIN, "Resource temporarily unavailable")
+
+
+class LazyBlockingEvdevDevice(FakeEvdevDevice):
+    def read(self):
+        return LazyBlockingIterator()
+
+
 def make_provider(device: FakeEvdevDevice) -> LinuxEvdevJoystickProvider:
     provider = LinuxEvdevJoystickProvider.__new__(LinuxEvdevJoystickProvider)
     provider._evdev_categorize = lambda event: event
@@ -152,3 +162,26 @@ def test_linux_evdev_idle_manual_poll_stays_connected() -> None:
     for _ in range(3):
         assert monitor.poll() is not None
         assert monitor.health.connected is True
+
+
+def test_linux_evdev_lazy_iterator_blockingioerror_returns_normally() -> None:
+    device = LazyBlockingEvdevDevice()
+    provider = make_provider(device)
+
+    provider.poll()
+
+    snapshot = provider.snapshot()
+    assert snapshot.axes == RawAxisState()
+    assert snapshot.hat == HatState()
+
+
+def test_linux_evdev_lazy_iterator_keeps_last_known_state() -> None:
+    device = FakeEvdevDevice()
+    provider = make_provider(device)
+    device.events.append(SimpleNamespace(type=FakeEcodes.EV_ABS, code=0, value=2345))
+    assert provider.snapshot().axes.pan == 2345
+
+    provider._device = LazyBlockingEvdevDevice()
+    idle_snapshot = provider.snapshot()
+
+    assert idle_snapshot.axes.pan == 2345

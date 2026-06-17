@@ -88,7 +88,12 @@ class LinuxEvdevJoystickProvider(JoystickInputProvider):
 
     def poll(self) -> None:
         try:
-            events = self._device.read()
+            # evdev InputDevice.read() returns an iterator-like object. With
+            # non-blocking devices the EAGAIN/BlockingIOError may be raised
+            # lazily while iterating, not when read() is called. Force the
+            # iteration inside this try block so an idle joystick is handled as
+            # "no events available" rather than as a disconnect.
+            events = tuple(self._device.read())
         except BlockingIOError as exc:
             # evdev InputDevice objects are opened non-blocking. When there are
             # no pending input events, Linux raises EAGAIN/EWOULDBLOCK. This is
