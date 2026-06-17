@@ -1,29 +1,7 @@
-# Python
+.pytest_cache/
 __pycache__/
 *.pyc
-*.pyo
-.pytest_cache/
-
-# Virtual environment
 .venv/
-venv/
-
-# Local configuration
-config.local.yaml
-config.local.yaml.bak
-ptz_bug_log.txt
-
-# Runtime logs
 data/logs/
-*.log
 
-# IDE
-.vscode/
-.idea/
-
-# Windows
-Thumbs.db
-Desktop.ini
-
-# macOS
-.DS_Store
+config.local.yaml

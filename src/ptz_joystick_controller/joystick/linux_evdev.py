@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import errno
 import logging
 from collections.abc import Iterable
 
@@ -52,6 +53,7 @@ class LinuxEvdevJoystickProvider(JoystickInputProvider):
         self._hat = HatState()
         self._pressed_buttons: set[str] = set()
         self._events: list[ButtonEvent] = []
+        self._no_event_debug_logged = False
         self._initialize_state()
 
     def _initialize_state(self) -> None:
@@ -87,11 +89,21 @@ class LinuxEvdevJoystickProvider(JoystickInputProvider):
     def poll(self) -> None:
         try:
             events = self._device.read()
-        except BlockingIOError:
-            return
+        except BlockingIOError as exc:
+            # evdev InputDevice objects are opened non-blocking. When there are
+            # no pending input events, Linux raises EAGAIN/EWOULDBLOCK. This is
+            # an idle joystick, not a disconnect. Keep the last known state so
+            # snapshot() remains stable while the stick is untouched.
+            if exc.errno in (errno.EAGAIN, errno.EWOULDBLOCK, None):
+                if not self._no_event_debug_logged:
+                    LOGGER.debug("No evdev joystick events available; keeping last known state")
+                    self._no_event_debug_logged = True
+                return
+            raise RuntimeError(f"evdev joystick read failed: {exc}") from exc
         except OSError as exc:
             raise RuntimeError(f"evdev joystick read failed: {exc}") from exc
 
+        self._no_event_debug_logged = False
         for event in events:
             if event.type == self._ecodes.EV_ABS:
                 name = self._code_name(event.code)
