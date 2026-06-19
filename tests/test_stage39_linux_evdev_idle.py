@@ -35,6 +35,15 @@ class FakeEvdevDevice:
         self.events: list[SimpleNamespace] = []
         self.raise_blocking = False
         self.raise_oserror = False
+        self.absinfo_by_code = {
+            0: SimpleNamespace(min=0, max=1023, flat=4),
+            1: SimpleNamespace(min=0, max=1023, flat=4),
+            5: SimpleNamespace(min=0, max=255, flat=2),
+            6: SimpleNamespace(min=0, max=255, flat=0),
+        }
+
+    def absinfo(self, code: int):
+        return self.absinfo_by_code[code]
 
     def read(self):
         if self.raise_blocking:
@@ -66,6 +75,8 @@ def make_provider(device: FakeEvdevDevice) -> LinuxEvdevJoystickProvider:
     provider._pressed_buttons = set()
     provider._events = []
     provider._no_event_debug_logged = False
+    provider._unknown_abs_codes_logged = set()
+    provider._axis_specs = provider._load_axis_specs()
     return provider
 
 
@@ -84,13 +95,14 @@ def test_linux_evdev_poll_blockingioerror_returns_normally() -> None:
 def test_linux_evdev_snapshot_after_no_events_returns_last_known_state() -> None:
     device = FakeEvdevDevice()
     provider = make_provider(device)
-    device.events.append(SimpleNamespace(type=FakeEcodes.EV_ABS, code=0, value=1234))
-    assert provider.snapshot().axes.pan == 1234
+    device.events.append(SimpleNamespace(type=FakeEcodes.EV_ABS, code=0, value=900))
+    first_pan = provider.snapshot().axes.pan
+    assert first_pan > 0
 
     device.raise_blocking = True
     idle_snapshot = provider.snapshot()
 
-    assert idle_snapshot.axes.pan == 1234
+    assert idle_snapshot.axes.pan == first_pan
 
 
 def test_linux_evdev_blockingioerror_does_not_emit_joystick_error() -> None:
@@ -178,57 +190,116 @@ def test_linux_evdev_lazy_iterator_blockingioerror_returns_normally() -> None:
 def test_linux_evdev_lazy_iterator_keeps_last_known_state() -> None:
     device = FakeEvdevDevice()
     provider = make_provider(device)
-    device.events.append(SimpleNamespace(type=FakeEcodes.EV_ABS, code=0, value=2345))
-    assert provider.snapshot().axes.pan == 2345
+    device.events.append(SimpleNamespace(type=FakeEcodes.EV_ABS, code=0, value=900))
+    first_pan = provider.snapshot().axes.pan
+    assert first_pan > 0
 
     provider._device = LazyBlockingEvdevDevice()
     idle_snapshot = provider.snapshot()
 
-    assert idle_snapshot.axes.pan == 2345
+    assert idle_snapshot.axes.pan == first_pan
 
 
-def test_linux_evdev_numeric_abs_code_0_updates_pan_even_if_key_name_conflicts() -> None:
-    class ConflictingEcodes(FakeEcodes):
-        bytype = {
-            FakeEcodes.EV_ABS: dict(FakeEcodes.bytype[FakeEcodes.EV_ABS]),
-            FakeEcodes.EV_KEY: {0: "KEY_RESERVED", 288: "BTN_TRIGGER"},
-        }
-
+def test_linux_evdev_numeric_code_0_updates_pan() -> None:
     device = FakeEvdevDevice()
     provider = make_provider(device)
-    provider._ecodes = ConflictingEcodes()
-    device.events.append(SimpleNamespace(type=ConflictingEcodes.EV_ABS, code=0, value=424))
-
-    assert provider.snapshot().axes.pan == 424
-
-
-def test_linux_evdev_numeric_abs_code_1_updates_tilt_even_if_key_name_conflicts() -> None:
-    class ConflictingEcodes(FakeEcodes):
-        bytype = {
-            FakeEcodes.EV_ABS: dict(FakeEcodes.bytype[FakeEcodes.EV_ABS]),
-            FakeEcodes.EV_KEY: {1: "KEY_ESC", 288: "BTN_TRIGGER"},
-        }
-
-    device = FakeEvdevDevice()
-    provider = make_provider(device)
-    provider._ecodes = ConflictingEcodes()
-    device.events.append(SimpleNamespace(type=ConflictingEcodes.EV_ABS, code=1, value=520))
-
-    assert provider.snapshot().axes.tilt == 520
-
-
-def test_linux_evdev_numeric_abs_code_5_updates_zoom_twist_axis() -> None:
-    class ConflictingEcodes(FakeEcodes):
-        bytype = {
-            FakeEcodes.EV_ABS: dict(FakeEcodes.bytype[FakeEcodes.EV_ABS]),
-            FakeEcodes.EV_KEY: {5: "KEY_4", 288: "BTN_TRIGGER"},
-        }
-
-    device = FakeEvdevDevice()
-    provider = make_provider(device)
-    provider._ecodes = ConflictingEcodes()
-    device.events.append(SimpleNamespace(type=ConflictingEcodes.EV_ABS, code=5, value=124))
+    provider._ecodes.bytype[FakeEcodes.EV_ABS][0] = "UNEXPECTED_ABS_NAME"
+    device.events.append(SimpleNamespace(type=FakeEcodes.EV_ABS, code=0, value=900))
 
     snapshot = provider.snapshot()
-    assert snapshot.axes.zoom == 124
-    assert snapshot.axes.throttle == 0
+
+    assert snapshot.axes.pan > 0
+
+
+def test_linux_evdev_numeric_code_1_updates_tilt() -> None:
+    device = FakeEvdevDevice()
+    provider = make_provider(device)
+    provider._ecodes.bytype[FakeEcodes.EV_ABS][1] = "UNEXPECTED_ABS_NAME"
+    device.events.append(SimpleNamespace(type=FakeEcodes.EV_ABS, code=1, value=100))
+
+    snapshot = provider.snapshot()
+
+    assert snapshot.axes.tilt < 0
+
+
+def test_linux_evdev_numeric_code_5_updates_zoom_twist() -> None:
+    device = FakeEvdevDevice()
+    provider = make_provider(device)
+    provider._ecodes.bytype[FakeEcodes.EV_ABS][5] = "UNEXPECTED_ABS_NAME"
+    device.events.append(SimpleNamespace(type=FakeEcodes.EV_ABS, code=5, value=200))
+
+    snapshot = provider.snapshot()
+
+    assert snapshot.axes.zoom > 0
+
+
+def test_linux_evdev_numeric_code_16_updates_hat_x() -> None:
+    device = FakeEvdevDevice()
+    provider = make_provider(device)
+    provider._ecodes.bytype[FakeEcodes.EV_ABS][16] = "UNEXPECTED_ABS_NAME"
+    device.events.append(SimpleNamespace(type=FakeEcodes.EV_ABS, code=16, value=-1))
+
+    snapshot = provider.snapshot()
+
+    assert snapshot.hat.x == -1
+    assert snapshot.hat.y == 0
+
+
+def test_linux_evdev_numeric_code_17_updates_hat_y() -> None:
+    device = FakeEvdevDevice()
+    provider = make_provider(device)
+    provider._ecodes.bytype[FakeEcodes.EV_ABS][17] = "UNEXPECTED_ABS_NAME"
+    device.events.append(SimpleNamespace(type=FakeEcodes.EV_ABS, code=17, value=1))
+
+    snapshot = provider.snapshot()
+
+    assert snapshot.hat.x == 0
+    assert snapshot.hat.y == 1
+
+
+def test_linux_evdev_pan_center_511_becomes_internal_zero() -> None:
+    device = FakeEvdevDevice()
+    provider = make_provider(device)
+    device.events.append(SimpleNamespace(type=FakeEcodes.EV_ABS, code=0, value=511))
+
+    assert provider.snapshot().axes.pan == 0
+
+
+def test_linux_evdev_pan_low_high_become_negative_positive() -> None:
+    device = FakeEvdevDevice()
+    provider = make_provider(device)
+    device.events.append(SimpleNamespace(type=FakeEcodes.EV_ABS, code=0, value=0))
+    assert provider.snapshot().axes.pan < 0
+    device.events.append(SimpleNamespace(type=FakeEcodes.EV_ABS, code=0, value=1023))
+    assert provider.snapshot().axes.pan > 0
+
+
+def test_linux_evdev_tilt_center_510_becomes_internal_zero() -> None:
+    device = FakeEvdevDevice()
+    # Simulate minimal fake device without useful absinfo so observed hardware
+    # fallback center for ABS 1 is used.
+    device.absinfo_by_code.pop(1)
+    provider = make_provider(device)
+    device.events.append(SimpleNamespace(type=FakeEcodes.EV_ABS, code=1, value=510))
+
+    assert provider.snapshot().axes.tilt == 0
+
+
+def test_linux_evdev_zoom_center_127_becomes_internal_zero() -> None:
+    device = FakeEvdevDevice()
+    provider = make_provider(device)
+    device.events.append(SimpleNamespace(type=FakeEcodes.EV_ABS, code=5, value=127))
+
+    assert provider.snapshot().axes.zoom == 0
+
+
+def test_linux_evdev_hat_values_remain_discrete() -> None:
+    device = FakeEvdevDevice()
+    provider = make_provider(device)
+    device.events.append(SimpleNamespace(type=FakeEcodes.EV_ABS, code=16, value=-1))
+    device.events.append(SimpleNamespace(type=FakeEcodes.EV_ABS, code=17, value=1))
+
+    snapshot = provider.snapshot()
+
+    assert snapshot.hat.x == -1
+    assert snapshot.hat.y == 1

@@ -3,11 +3,19 @@ from __future__ import annotations
 import errno
 import logging
 from collections.abc import Iterable
+from dataclasses import dataclass
 
 from ..models.joystick_input import ButtonEvent, HatState, JoystickSnapshot, RawAxisState
 from .device import JoystickInputProvider
 
 LOGGER = logging.getLogger(__name__)
+
+@dataclass(frozen=True)
+class EvdevAxisSpec:
+    minimum: int
+    maximum: int
+    center: int
+    flat: int = 0
 
 
 class LinuxEvdevJoystickProvider(JoystickInputProvider):
@@ -17,30 +25,42 @@ class LinuxEvdevJoystickProvider(JoystickInputProvider):
     and without a joystick attached.
     """
 
+    # Observed Logitech Extreme 3D Pro mapping on Raspberry Pi / Linux evdev:
+    #   ABS 0  -> main X axis / pan
+    #   ABS 1  -> main Y axis / tilt
+    #   ABS 5  -> twist axis / zoom
+    #   ABS 16 -> HAT X
+    #   ABS 17 -> HAT Y
+    #
+    # Keep name-based fallbacks too, but numeric codes are preferred because
+    # some evdev environments report codes more reliably than names.
+    NUMERIC_AXIS_CODES = {
+        0: "pan",
+        1: "tilt",
+        5: "zoom",
+        6: "throttle",
+    }
+    NUMERIC_HAT_X_CODE = 16
+    NUMERIC_HAT_Y_CODE = 17
+
+    # Conservative Logitech Extreme 3D Pro fallbacks observed on Raspberry Pi.
+    # evdev absinfo is preferred when available, but these defaults make unit
+    # tests and minimal fake devices behave like the real hardware.
+    DEFAULT_AXIS_SPECS = {
+        0: EvdevAxisSpec(minimum=0, maximum=1023, center=511, flat=4),
+        1: EvdevAxisSpec(minimum=0, maximum=1023, center=510, flat=4),
+        5: EvdevAxisSpec(minimum=0, maximum=255, center=127, flat=2),
+        6: EvdevAxisSpec(minimum=0, maximum=255, center=0, flat=0),
+    }
+
     AXIS_CODES = {
         "ABS_X": "pan",
         "ABS_Y": "tilt",
         "ABS_RZ": "zoom",
         "ABS_THROTTLE": "throttle",
     }
-    # Numeric fallbacks are required on Raspberry Pi / Linux because some
-    # evdev installations expose ABS event codes more reliably than names,
-    # and _code_name() must not accidentally resolve ABS code 0/1/5 through
-    # the EV_KEY table first. Logitech Extreme 3D Pro observed mapping:
-    #   ABS_X/code 0  -> pan
-    #   ABS_Y/code 1  -> tilt
-    #   ABS_RZ/code 5 -> twist/zoom
-    #   ABS_THROTTLE/code 6 -> throttle
-    AXIS_NUMERIC_CODES = {
-        0: "pan",
-        1: "tilt",
-        5: "zoom",
-        6: "throttle",
-    }
     HAT_X_CODE = "ABS_HAT0X"
     HAT_Y_CODE = "ABS_HAT0Y"
-    HAT_X_NUMERIC_CODE = 16
-    HAT_Y_NUMERIC_CODE = 17
 
     BUTTON_CODES = {
         "BTN_TRIGGER": "trigger",
@@ -70,7 +90,8 @@ class LinuxEvdevJoystickProvider(JoystickInputProvider):
         self._pressed_buttons: set[str] = set()
         self._events: list[ButtonEvent] = []
         self._no_event_debug_logged = False
-        self._unknown_abs_debug_logged: set[int] = set()
+        self._unknown_abs_codes_logged: set[int] = set()
+        self._axis_specs = self._load_axis_specs()
         self._initialize_state()
 
     def _initialize_state(self) -> None:
@@ -84,34 +105,61 @@ class LinuxEvdevJoystickProvider(JoystickInputProvider):
         except OSError as exc:
             LOGGER.debug("Could not initialize evdev button state: %s", exc)
 
-    def _key_code_name(self, code: int) -> str:
-        name = self._ecodes.bytype.get(self._ecodes.EV_KEY, {}).get(code)
-        if isinstance(name, list):
-            return str(name[0])
-        return str(name or code)
-
-    def _abs_code_name(self, code: int) -> str:
-        name = self._ecodes.bytype.get(self._ecodes.EV_ABS, {}).get(code)
-        if isinstance(name, list):
-            return str(name[0])
-        return str(name or code)
-
     def _code_name(self, code: int) -> str:
-        # Backward-compatible helper for callers that do not know the event
-        # type. Prefer _key_code_name() or _abs_code_name() in event handling.
         name = self._ecodes.bytype.get(self._ecodes.EV_KEY, {}).get(code)
         if isinstance(name, list):
             return str(name[0])
         if name:
             return str(name)
-        return self._abs_code_name(code)
+        abs_name = self._ecodes.bytype.get(self._ecodes.EV_ABS, {}).get(code)
+        if isinstance(abs_name, list):
+            return str(abs_name[0])
+        return str(abs_name or code)
 
-    def _set_axis(self, field_name: str, value: int) -> None:
+    def _load_axis_specs(self) -> dict[int, EvdevAxisSpec]:
+        specs = dict(self.DEFAULT_AXIS_SPECS)
+        for code in self.NUMERIC_AXIS_CODES:
+            try:
+                absinfo = self._device.absinfo(code)
+            except Exception:
+                continue
+            minimum = int(getattr(absinfo, "min"))
+            maximum = int(getattr(absinfo, "max"))
+            flat = int(getattr(absinfo, "flat", 0) or 0)
+            fallback = specs.get(code)
+            # Most centered joystick axes use the midpoint. Keep a measured
+            # fallback center when the midpoint would make the real idle value
+            # sit just outside zero and no evdev flat zone is provided.
+            center = (minimum + maximum) // 2
+            if fallback is not None and flat <= 0 and abs(fallback.center - center) <= 2:
+                center = fallback.center
+            specs[code] = EvdevAxisSpec(minimum=minimum, maximum=maximum, center=center, flat=max(flat, fallback.flat if fallback else 0))
+        return specs
+
+    def _normalize_axis_value(self, code: int, value: int) -> int:
+        spec = self._axis_specs.get(code, self.DEFAULT_AXIS_SPECS.get(code))
+        if spec is None:
+            return int(value)
+        if abs(value - spec.center) <= spec.flat:
+            return 0
+        if value < spec.center:
+            span = max(1, spec.center - spec.minimum)
+            normalized = (value - spec.center) / span
+        else:
+            span = max(1, spec.maximum - spec.center)
+            normalized = (value - spec.center) / span
+        normalized = max(-1.0, min(1.0, normalized))
+        if normalized < 0:
+            return int(round(normalized * 32768))
+        return int(round(normalized * 32767))
+
+    def _set_axis(self, field_name: str, value: int, *, code: int | None = None) -> None:
+        internal_value = self._normalize_axis_value(code, value) if code is not None else int(value)
         self._axes = RawAxisState(
-            pan=value if field_name == "pan" else self._axes.pan,
-            tilt=value if field_name == "tilt" else self._axes.tilt,
-            zoom=value if field_name == "zoom" else self._axes.zoom,
-            throttle=value if field_name == "throttle" else self._axes.throttle,
+            pan=internal_value if field_name == "pan" else self._axes.pan,
+            tilt=internal_value if field_name == "tilt" else self._axes.tilt,
+            zoom=internal_value if field_name == "zoom" else self._axes.zoom,
+            throttle=internal_value if field_name == "throttle" else self._axes.throttle,
         )
 
     def poll(self) -> None:
@@ -139,22 +187,27 @@ class LinuxEvdevJoystickProvider(JoystickInputProvider):
         self._no_event_debug_logged = False
         for event in events:
             if event.type == self._ecodes.EV_ABS:
-                name = self._abs_code_name(event.code)
-                axis = self.AXIS_NUMERIC_CODES.get(int(event.code)) or self.AXIS_CODES.get(name)
-                if axis is not None:
-                    self._set_axis(axis, int(event.value))
-                elif int(event.code) == self.HAT_X_NUMERIC_CODE or name == self.HAT_X_CODE:
-                    self._hat = HatState(x=int(event.value), y=self._hat.y)
-                elif int(event.code) == self.HAT_Y_NUMERIC_CODE or name == self.HAT_Y_CODE:
-                    self._hat = HatState(x=self._hat.x, y=int(event.value))
+                numeric_code = int(event.code)
+                value = int(event.value)
+                if numeric_code in self.NUMERIC_AXIS_CODES:
+                    self._set_axis(self.NUMERIC_AXIS_CODES[numeric_code], value, code=numeric_code)
+                elif numeric_code == self.NUMERIC_HAT_X_CODE:
+                    self._hat = HatState(x=value, y=self._hat.y)
+                elif numeric_code == self.NUMERIC_HAT_Y_CODE:
+                    self._hat = HatState(x=self._hat.x, y=value)
                 else:
-                    unknown_logged = getattr(self, "_unknown_abs_debug_logged", set())
-                    if int(event.code) not in unknown_logged:
-                        LOGGER.debug("Unknown evdev ABS code ignored: code=%s name=%s value=%s", event.code, name, event.value)
-                        unknown_logged.add(int(event.code))
-                        self._unknown_abs_debug_logged = unknown_logged
+                    name = self._code_name(numeric_code)
+                    if name in self.AXIS_CODES:
+                        self._set_axis(self.AXIS_CODES[name], value, code=numeric_code)
+                    elif name == self.HAT_X_CODE:
+                        self._hat = HatState(x=value, y=self._hat.y)
+                    elif name == self.HAT_Y_CODE:
+                        self._hat = HatState(x=self._hat.x, y=value)
+                    elif numeric_code not in self._unknown_abs_codes_logged:
+                        LOGGER.debug("Ignoring unknown evdev EV_ABS code=%s name=%s value=%s", numeric_code, name, value)
+                        self._unknown_abs_codes_logged.add(numeric_code)
             elif event.type == self._ecodes.EV_KEY:
-                name = self._key_code_name(event.code)
+                name = self._code_name(event.code)
                 button = self.BUTTON_CODES.get(name)
                 if button is None:
                     continue
