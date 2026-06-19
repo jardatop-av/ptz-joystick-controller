@@ -185,3 +185,50 @@ def test_linux_evdev_lazy_iterator_keeps_last_known_state() -> None:
     idle_snapshot = provider.snapshot()
 
     assert idle_snapshot.axes.pan == 2345
+
+
+def test_linux_evdev_numeric_abs_code_0_updates_pan_even_if_key_name_conflicts() -> None:
+    class ConflictingEcodes(FakeEcodes):
+        bytype = {
+            FakeEcodes.EV_ABS: dict(FakeEcodes.bytype[FakeEcodes.EV_ABS]),
+            FakeEcodes.EV_KEY: {0: "KEY_RESERVED", 288: "BTN_TRIGGER"},
+        }
+
+    device = FakeEvdevDevice()
+    provider = make_provider(device)
+    provider._ecodes = ConflictingEcodes()
+    device.events.append(SimpleNamespace(type=ConflictingEcodes.EV_ABS, code=0, value=424))
+
+    assert provider.snapshot().axes.pan == 424
+
+
+def test_linux_evdev_numeric_abs_code_1_updates_tilt_even_if_key_name_conflicts() -> None:
+    class ConflictingEcodes(FakeEcodes):
+        bytype = {
+            FakeEcodes.EV_ABS: dict(FakeEcodes.bytype[FakeEcodes.EV_ABS]),
+            FakeEcodes.EV_KEY: {1: "KEY_ESC", 288: "BTN_TRIGGER"},
+        }
+
+    device = FakeEvdevDevice()
+    provider = make_provider(device)
+    provider._ecodes = ConflictingEcodes()
+    device.events.append(SimpleNamespace(type=ConflictingEcodes.EV_ABS, code=1, value=520))
+
+    assert provider.snapshot().axes.tilt == 520
+
+
+def test_linux_evdev_numeric_abs_code_5_updates_zoom_twist_axis() -> None:
+    class ConflictingEcodes(FakeEcodes):
+        bytype = {
+            FakeEcodes.EV_ABS: dict(FakeEcodes.bytype[FakeEcodes.EV_ABS]),
+            FakeEcodes.EV_KEY: {5: "KEY_4", 288: "BTN_TRIGGER"},
+        }
+
+    device = FakeEvdevDevice()
+    provider = make_provider(device)
+    provider._ecodes = ConflictingEcodes()
+    device.events.append(SimpleNamespace(type=ConflictingEcodes.EV_ABS, code=5, value=124))
+
+    snapshot = provider.snapshot()
+    assert snapshot.axes.zoom == 124
+    assert snapshot.axes.throttle == 0
