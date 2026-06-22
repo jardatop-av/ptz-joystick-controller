@@ -303,3 +303,48 @@ def test_linux_evdev_hat_values_remain_discrete() -> None:
 
     assert snapshot.hat.x == -1
     assert snapshot.hat.y == 1
+
+
+def test_linux_evdev_key_code_288_tuple_alias_maps_to_trigger() -> None:
+    device = FakeEvdevDevice()
+    provider = make_provider(device)
+    provider._ecodes.bytype[FakeEcodes.EV_KEY][288] = ("BTN_JOYSTICK", "BTN_TRIGGER")
+
+    assert provider._button_for_code(288) == "trigger"
+
+
+def test_linux_evdev_trigger_down_adds_pressed_button() -> None:
+    device = FakeEvdevDevice()
+    provider = make_provider(device)
+    provider._ecodes.bytype[FakeEcodes.EV_KEY][288] = ("BTN_JOYSTICK", "BTN_TRIGGER")
+    device.events.append(SimpleNamespace(type=FakeEcodes.EV_KEY, code=288, value=1))
+
+    snapshot = provider.snapshot()
+
+    assert "trigger" in snapshot.pressed_buttons
+
+
+def test_linux_evdev_trigger_up_removes_pressed_button() -> None:
+    device = FakeEvdevDevice()
+    provider = make_provider(device)
+    provider._ecodes.bytype[FakeEcodes.EV_KEY][288] = ("BTN_JOYSTICK", "BTN_TRIGGER")
+    device.events.append(SimpleNamespace(type=FakeEcodes.EV_KEY, code=288, value=1))
+    provider.snapshot()
+    device.events.append(SimpleNamespace(type=FakeEcodes.EV_KEY, code=288, value=0))
+
+    snapshot = provider.snapshot()
+
+    assert "trigger" not in snapshot.pressed_buttons
+
+
+def test_linux_evdev_trigger_press_and_release_emit_button_events() -> None:
+    device = FakeEvdevDevice()
+    provider = make_provider(device)
+    provider._ecodes.bytype[FakeEcodes.EV_KEY][288] = ("BTN_JOYSTICK", "BTN_TRIGGER")
+    device.events.append(SimpleNamespace(type=FakeEcodes.EV_KEY, code=288, value=1))
+    events_down = tuple(provider.button_events())
+    device.events.append(SimpleNamespace(type=FakeEcodes.EV_KEY, code=288, value=0))
+    events_up = tuple(provider.button_events())
+
+    assert [(event.button_name, event.pressed) for event in events_down] == [("trigger", True)]
+    assert [(event.button_name, event.pressed) for event in events_up] == [("trigger", False)]

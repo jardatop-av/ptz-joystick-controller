@@ -98,23 +98,47 @@ class LinuxEvdevJoystickProvider(JoystickInputProvider):
         try:
             abs_state = self._device.active_keys(verbose=False)
             for key_code in abs_state:
-                name = self._code_name(key_code)
-                button = self.BUTTON_CODES.get(name)
+                button = self._button_for_code(key_code)
                 if button:
                     self._pressed_buttons.add(button)
         except OSError as exc:
             LOGGER.debug("Could not initialize evdev button state: %s", exc)
 
+    def _normalize_code_aliases(self, value: object) -> tuple[str, ...]:
+        if value is None:
+            return ()
+        if isinstance(value, str):
+            return (value,)
+        if isinstance(value, (tuple, list, set, frozenset)):
+            return tuple(str(item) for item in value if item is not None)
+        return (str(value),)
+
+    def _code_names(self, event_type: int, code: int) -> tuple[str, ...]:
+        names = self._normalize_code_aliases(self._ecodes.bytype.get(event_type, {}).get(code))
+        if names:
+            return names
+        return (str(code),)
+
     def _code_name(self, code: int) -> str:
-        name = self._ecodes.bytype.get(self._ecodes.EV_KEY, {}).get(code)
-        if isinstance(name, list):
-            return str(name[0])
-        if name:
-            return str(name)
-        abs_name = self._ecodes.bytype.get(self._ecodes.EV_ABS, {}).get(code)
-        if isinstance(abs_name, list):
-            return str(abs_name[0])
-        return str(abs_name or code)
+        key_names = self._code_names(self._ecodes.EV_KEY, code)
+        if key_names != (str(code),):
+            return key_names[0]
+        return self._code_names(self._ecodes.EV_ABS, code)[0]
+
+    def _button_for_code(self, code: int) -> str | None:
+        # Prefer explicit numeric mapping for real Logitech Extreme 3D Pro
+        # hardware where evdev may report multiple aliases for the same code,
+        # e.g. code 288 as ("BTN_JOYSTICK", "BTN_TRIGGER").
+        numeric_buttons = {
+            288: "trigger",
+        }
+        if int(code) in numeric_buttons:
+            return numeric_buttons[int(code)]
+        for name in self._code_names(self._ecodes.EV_KEY, int(code)):
+            button = self.BUTTON_CODES.get(name)
+            if button is not None:
+                return button
+        return None
 
     def _load_axis_specs(self) -> dict[int, EvdevAxisSpec]:
         specs = dict(self.DEFAULT_AXIS_SPECS)
@@ -207,8 +231,7 @@ class LinuxEvdevJoystickProvider(JoystickInputProvider):
                         LOGGER.debug("Ignoring unknown evdev EV_ABS code=%s name=%s value=%s", numeric_code, name, value)
                         self._unknown_abs_codes_logged.add(numeric_code)
             elif event.type == self._ecodes.EV_KEY:
-                name = self._code_name(event.code)
-                button = self.BUTTON_CODES.get(name)
+                button = self._button_for_code(event.code)
                 if button is None:
                     continue
                 pressed = bool(event.value)
