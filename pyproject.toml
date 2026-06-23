@@ -7,7 +7,7 @@ name = "ptz-joystick-controller"
 version = "0.1.0"
 description = "Backend skeleton for PTZ Joystick Controller appliance"
 requires-python = ">=3.11"
-dependencies = ["PyYAML>=6.0", "pydantic>=2.0", "fastapi>=0.110", "uvicorn>=0.27", "httpx2", "pygame>=2.5", "evdev>=1.7; platform_system == \"Linux\""]
+dependencies = ["PyYAML>=6.0", "pydantic>=2.0", "fastapi>=0.110", "uvicorn>=0.27", "httpx2", "pygame>=2.5", "python-multipart", "evdev>=1.7; platform_system == \"Linux\""]
 
 [project.optional-dependencies]
 test = ["pytest>=8.0", "httpx2"]
