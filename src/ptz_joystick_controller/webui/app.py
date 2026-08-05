@@ -112,6 +112,14 @@ DIAGNOSTICS_HTML = """<!doctype html>
     section { border: 1px solid color-mix(in srgb, CanvasText 25%, transparent); border-radius: .75rem; padding: .85rem; background: color-mix(in srgb, Canvas 92%, CanvasText 8%); min-width: 0; }
     .table-wrap { overflow-x: auto; max-width: 100%; }
     table { width: 100%; border-collapse: collapse; font-size: .88rem; table-layout: fixed; }
+    .visca-section { grid-column: 1 / -1; width: auto; }
+    .visca-table { min-width: 980px; }
+    .visca-table th:nth-child(1), .visca-table td:nth-child(1) { width: 19%; }
+    .visca-table th:nth-child(2), .visca-table td:nth-child(2) { width: 24%; }
+    .visca-table th:nth-child(3), .visca-table td:nth-child(3) { width: 8%; }
+    .visca-table th:nth-child(4), .visca-table td:nth-child(4) { width: 49%; }
+    .visca-target { white-space: nowrap; word-break: normal; overflow-wrap: normal; }
+    .visca-payload { white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }
     th, td { border-bottom: 1px solid color-mix(in srgb, CanvasText 18%, transparent); padding: .25rem; text-align: left; vertical-align: top; overflow-wrap: anywhere; word-break: break-word; }
     td.mono, .hex, .details { overflow-wrap: anywhere; word-break: break-word; white-space: pre-wrap; }
     dl { display: grid; grid-template-columns: max-content 1fr; gap: .25rem .7rem; margin: 0; }
@@ -128,7 +136,7 @@ DIAGNOSTICS_HTML = """<!doctype html>
   <section><h2>Joystick diagnostics</h2><dl id=\"joystick\"></dl></section>
   <section><h2>Switcher diagnostics</h2><dl id=\"switcher\"></dl></section>
   <section><h2>PTZ diagnostics</h2><div class="table-wrap"><table><thead><tr><th>Time</th><th>Camera</th><th>Action</th><th>Details</th></tr></thead><tbody id=\"ptz\"></tbody></table></div></section>
-  <section><h2>VISCA diagnostics</h2><div class="table-wrap"><table><thead><tr><th>Time</th><th>Target</th><th>Dir</th><th>Hex payload</th></tr></thead><tbody id=\"visca\"></tbody></table></div></section>
+  <section class="visca-section"><h2>VISCA diagnostics</h2><div class="table-wrap visca-table-wrap"><table class="visca-table"><thead><tr><th>Time</th><th class="visca-target">Target</th><th>Dir</th><th>Hex payload</th></tr></thead><tbody id=\"visca\"></tbody></table></div></section>
   <section style=\"grid-column: 1 / -1\"><h2>Runtime log</h2><div class="table-wrap"><table><thead><tr><th>Time</th><th>Level</th><th>Event</th><th>Details</th></tr></thead><tbody id=\"runtime\"></tbody></table></div></section>
 </div>
 <script>
@@ -154,7 +162,7 @@ async function refreshDiagnostics() {
       dtdd('Last sync', s.last_sync_time), dtdd('Last HTTP error', s.last_http_error), dtdd('Last command', s.last_command)
     ].join('');
     document.getElementById('ptz').innerHTML = (d.ptz_actions || []).map(a => `<tr><td class=\"mono\">${shortTime(a.timestamp)}</td><td>${esc(a.camera_id)}</td><td>${esc(a.action_type)}</td><td class=\"mono\">${json(a.details)}</td></tr>`).join('') || '<tr><td colspan=\"4\">No PTZ actions</td></tr>';
-    document.getElementById('visca').innerHTML = (d.visca_packets || []).map(p => `<tr><td class=\"mono\">${shortTime(p.timestamp)}</td><td>${esc(p.host)}:${esc(p.port)}</td><td>${esc(p.direction)}</td><td class=\"mono\">${esc(p.hex_payload)}</td></tr>`).join('') || '<tr><td colspan=\"4\">No VISCA packets</td></tr>';
+    document.getElementById('visca').innerHTML = (d.visca_packets || []).map(p => `<tr><td class=\"mono\">${shortTime(p.timestamp)}</td><td class=\"visca-target mono\">${esc(p.host)}:${esc(p.port)}</td><td>${esc(p.direction)}</td><td class=\"mono visca-payload\">${esc(p.hex_payload)}</td></tr>`).join('') || '<tr><td colspan=\"4\">No VISCA packets</td></tr>';
     document.getElementById('runtime').innerHTML = (d.runtime_events || []).map(e => `<tr><td class=\"mono\">${shortTime(e.timestamp)}</td><td>${esc(e.level)}</td><td>${esc(e.event_type || e.type)}</td><td class=\"mono\">${json(e.details)}</td></tr>`).join('') || '<tr><td colspan=\"4\">No runtime events</td></tr>';
   } catch (e) {
     document.getElementById('runtime').innerHTML = `<tr><td colspan=\"4\">Diagnostics refresh failed: ${esc(e)}</td></tr>`;

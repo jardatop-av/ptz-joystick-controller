@@ -68,13 +68,27 @@ class RuntimeApplication:
             discovery=AutoJoystickDiscovery(),
             provider_factory=default_joystick_provider_factory,
         )
+
+        effective_ptz_transport_factory = self.ptz_transport_factory
+        if effective_ptz_transport_factory is None and not self.dry_run:
+            effective_ptz_transport_factory = build_real_udp_transport
+            LOGGER.info("Selected PTZ transport: real VISCA UDP")
+        elif effective_ptz_transport_factory is None:
+            LOGGER.info("Selected PTZ transport: fake/dry-run")
+        else:
+            LOGGER.info("Selected PTZ transport: injected custom factory")
+
+        # Preserve the effective factory for runtime config apply/rebuilds and
+        # for introspection in tests. An explicitly injected factory always wins.
+        self.ptz_transport_factory = effective_ptz_transport_factory
+
         self.bridge = JoystickToSwitcherBridge(
             config=self.config,
             joystick_monitor=joystick_monitor,
             switcher=switcher,
             event_bus=self.event_bus,
             dry_run=self.dry_run,
-            ptz_transport_factory=self.ptz_transport_factory,
+            ptz_transport_factory=effective_ptz_transport_factory,
         )
         self.status_provider = RuntimeStatusProvider.from_bridge(self.bridge)
 

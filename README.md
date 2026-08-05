@@ -106,3 +106,12 @@ The Osee runtime exposes only logical sources (`Input 1`–`Input 8`, `MP1`, `MP
 - Initial Preview propagates through the normal event/state path and activates the mapped PTZ camera without Osee-specific routing.
 - Osee configurations receive logical Input 1–8 camera slots (`cam1`–`cam8`) and default mappings; MP1, MP2, and M/SRC remain unmapped.
 - The structured config page exposes all eight camera slots, VISCA IDs, and logical source-to-camera mappings.
+
+## Stage50 — production VISCA UDP runtime
+
+- Normal `RuntimeApplication` startup now selects the verified real VISCA-over-IP UDP transport automatically.
+- `--dry-run` keeps the existing fake VISCA transport and never sends UDP packets.
+- Explicitly injected PTZ transport factories continue to override the production default for tests and custom integrations.
+- Enabled cameras require a configured host; disabled camera slots do not create transport sessions.
+- Startup logs the selected PTZ transport mode once.
+- The Diagnostics VISCA section now spans the available desktop width, keeps the target address on one line where practical, and scrolls horizontally on smaller screens.
