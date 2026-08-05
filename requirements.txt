@@ -8,4 +8,5 @@ evdev>=1.7; platform_system == "Linux"
 fastapi>=0.110
 uvicorn>=0.27
 httpx2
-python-multipart
+
+python-multipart>=0.0.9
