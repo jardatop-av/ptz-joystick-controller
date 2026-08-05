@@ -10,7 +10,7 @@ GSP_HEADER = b"\xEB\xA6"
 GSP_PROTO_ID = 0
 GSP_MIN_LENGTH = 2  # CRC only
 GSP_MAX_LENGTH = 0xFFFF
-GspCommandType = Literal["get", "set", "pus"]
+GspCommandType = Literal["get", "set", "pus", "res"]
 
 
 class GspError(Exception):
@@ -50,7 +50,7 @@ class GspCommand:
         command_value = value.get("value")
         if not isinstance(command_id, str) or not command_id:
             raise GspProtocolError("GSP command id must be a non-empty string")
-        if command_type not in ("get", "set", "pus"):
+        if command_type not in ("get", "set", "pus", "res"):
             raise GspProtocolError(f"Unsupported GSP command type: {command_type!r}")
         parsed_value: tuple[int | float | str, ...] | None = None
         if command_value is not None:

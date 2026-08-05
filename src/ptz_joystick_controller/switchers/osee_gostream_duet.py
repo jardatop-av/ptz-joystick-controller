@@ -62,6 +62,7 @@ class OseeGoStreamDuetSwitcher(AbstractSwitcher):
     _reconnect_thread: threading.Thread | None = field(default=None, init=False, repr=False)
     _reconnect_lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
     _disconnect_logged: bool = field(default=False, init=False, repr=False)
+    _initial_state_logged: bool = field(default=False, init=False, repr=False)
 
     def __post_init__(self) -> None:
         if not self.host.strip():
@@ -235,3 +236,18 @@ class OseeGoStreamDuetSwitcher(AbstractSwitcher):
             self._last_sync_at = datetime.now(timezone.utc).isoformat()
         if changed:
             self._last_error = None
+            if (
+                not self._initial_state_logged
+                and self.get_program_source() is not None
+                and self.get_preview_source() is not None
+                and self.transition_state is not None
+            ):
+                transition = self.transition_state
+                transition_display = "idle" if transition in {(0,), ("0",), ("idle",)} else transition
+                self.logger.info(
+                    "Osee initial state: program=%s preview=%s transition=%s",
+                    self.get_program_source(),
+                    self.get_preview_source(),
+                    transition_display,
+                )
+                self._initial_state_logged = True

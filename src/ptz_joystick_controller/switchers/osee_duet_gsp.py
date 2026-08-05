@@ -125,8 +125,8 @@ class OseeDuetGspController:
         return self.transport.send_command(GspCommand(id="autoTransition", type="set"))
 
     def handle_command(self, command: GspCommand) -> bool:
-        """Apply a get/push state message. Return True if tracked state changed."""
-        if command.type not in ("get", "pus"):
+        """Apply a get/push/response state message. Return True if tracked state changed."""
+        if command.type not in ("get", "pus", "res"):
             return False
         if command.id == "pvwIndex":
             source_id = self._first_int(command)

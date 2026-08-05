@@ -72,6 +72,114 @@ ptz:
       zoom_min: 1
       zoom_max: 7
     preset_offset: 0
+  - id: cam3
+    name: PTZ Camera 3
+    host: null
+    port: 52381
+    visca_id: 1
+    enabled: false
+    invert:
+      pan: false
+      tilt: false
+      zoom: false
+    speed:
+      pan_min: 1
+      pan_max: 24
+      tilt_min: 1
+      tilt_max: 20
+      zoom_min: 1
+      zoom_max: 7
+    preset_offset: 0
+  - id: cam4
+    name: PTZ Camera 4
+    host: null
+    port: 52381
+    visca_id: 1
+    enabled: false
+    invert:
+      pan: false
+      tilt: false
+      zoom: false
+    speed:
+      pan_min: 1
+      pan_max: 24
+      tilt_min: 1
+      tilt_max: 20
+      zoom_min: 1
+      zoom_max: 7
+    preset_offset: 0
+  - id: cam5
+    name: PTZ Camera 5
+    host: null
+    port: 52381
+    visca_id: 1
+    enabled: false
+    invert:
+      pan: false
+      tilt: false
+      zoom: false
+    speed:
+      pan_min: 1
+      pan_max: 24
+      tilt_min: 1
+      tilt_max: 20
+      zoom_min: 1
+      zoom_max: 7
+    preset_offset: 0
+  - id: cam6
+    name: PTZ Camera 6
+    host: null
+    port: 52381
+    visca_id: 1
+    enabled: false
+    invert:
+      pan: false
+      tilt: false
+      zoom: false
+    speed:
+      pan_min: 1
+      pan_max: 24
+      tilt_min: 1
+      tilt_max: 20
+      zoom_min: 1
+      zoom_max: 7
+    preset_offset: 0
+  - id: cam7
+    name: PTZ Camera 7
+    host: null
+    port: 52381
+    visca_id: 1
+    enabled: false
+    invert:
+      pan: false
+      tilt: false
+      zoom: false
+    speed:
+      pan_min: 1
+      pan_max: 24
+      tilt_min: 1
+      tilt_max: 20
+      zoom_min: 1
+      zoom_max: 7
+    preset_offset: 0
+  - id: cam8
+    name: PTZ Camera 8
+    host: null
+    port: 52381
+    visca_id: 1
+    enabled: false
+    invert:
+      pan: false
+      tilt: false
+      zoom: false
+    speed:
+      pan_min: 1
+      pan_max: 24
+      tilt_min: 1
+      tilt_max: 20
+      zoom_min: 1
+      zoom_max: 7
+    preset_offset: 0
 joystick:
   type: logitech_extreme_3d_pro
   device_path: auto

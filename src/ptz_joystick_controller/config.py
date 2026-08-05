@@ -111,9 +111,71 @@ def load_yaml_file(path: str | Path) -> dict[str, Any]:
     return data
 
 
+
+
+def _apply_osee_duet_defaults(data: dict[str, Any], *, fill_unmapped_inputs: bool = False) -> dict[str, Any]:
+    """Add missing logical Osee Input 1-8 camera slots and mappings.
+
+    Existing camera and mapping entries always win. The migration is applied only
+    for the Duet backend, so vMix configurations remain unchanged.
+    """
+    switcher = data.get("switcher")
+    if not isinstance(switcher, dict):
+        return data
+    switcher_type = str(switcher.get("type", "")).strip().lower()
+    if switcher_type not in {"osee", "osee_gostream_duet"}:
+        return data
+
+    migrated = dict(data)
+    ptz = dict(migrated.get("ptz") or {})
+    default_port = int(ptz.get("default_port") or 52381)
+    cameras = list(ptz.get("cameras") or [])
+    existing_camera_ids = {str(item.get("id")) for item in cameras if isinstance(item, dict)}
+    for number in range(1, 9):
+        camera_id = f"cam{number}"
+        if camera_id not in existing_camera_ids:
+            cameras.append({
+                "id": camera_id,
+                "name": f"PTZ Camera {number}",
+                "host": None,
+                "port": default_port,
+                "visca_id": 1,
+                "enabled": False,
+                "invert": {"pan": False, "tilt": False, "zoom": False},
+                "speed": {
+                    "pan_min": 1, "pan_max": 24,
+                    "tilt_min": 1, "tilt_max": 20,
+                    "zoom_min": 1, "zoom_max": 7,
+                },
+                "preset_offset": 0,
+            })
+    ptz["cameras"] = cameras
+    migrated["ptz"] = ptz
+
+    sources = dict(migrated.get("sources") or {})
+    mappings = list(sources.get("mappings") or [])
+    mapping_by_source = {str(item.get("source_id")): item for item in mappings if isinstance(item, dict)}
+    existing_source_ids = set(mapping_by_source)
+    for number in range(1, 9):
+        source_id = f"Input {number}"
+        if source_id not in existing_source_ids:
+            mappings.append({
+                "source_id": source_id,
+                "display_name": source_id,
+                "ptz_camera_id": f"cam{number}",
+            })
+        elif fill_unmapped_inputs and mapping_by_source[source_id].get("ptz_camera_id") is None:
+            mapping_by_source[source_id]["ptz_camera_id"] = f"cam{number}"
+    for source_id in ("MP1", "MP2", "M/SRC"):
+        if source_id not in existing_source_ids:
+            mappings.append({"source_id": source_id, "display_name": source_id, "ptz_camera_id": None})
+    sources["mappings"] = mappings
+    migrated["sources"] = sources
+    return migrated
+
 def parse_config(data: dict[str, Any]) -> ControllerConfig:
     try:
-        return ControllerConfig.model_validate(data)
+        return ControllerConfig.model_validate(_apply_osee_duet_defaults(data))
     except ValidationError as exc:
         raise ConfigError(str(exc)) from exc
 
@@ -185,10 +247,24 @@ def default_local_config_path(path: str | Path) -> Path:
 
 def load_config(path: str | Path, *, local_path: str | Path | None = None, use_local: bool = True) -> ControllerConfig:
     base_data = load_yaml_file(path)
+    local_data: dict[str, Any] = {}
     if use_local:
         resolved_local_path = Path(local_path) if local_path is not None else default_local_config_path(path)
         if resolved_local_path.exists():
-            base_data = deep_merge_config(base_data, load_yaml_file(resolved_local_path))
+            local_data = load_yaml_file(resolved_local_path)
+
+    # Determine the effective backend before merging. For Osee, augment the
+    # generic base configuration with Input 1-8 defaults first; explicit local
+    # mappings (including ptz_camera_id: null) are then allowed to override them.
+    effective_probe = deep_merge_config(base_data, local_data) if local_data else base_data
+    effective_switcher = effective_probe.get("switcher") if isinstance(effective_probe, dict) else None
+    effective_type = str(effective_switcher.get("type", "")).lower() if isinstance(effective_switcher, dict) else ""
+    if effective_type in {"osee", "osee_gostream_duet"}:
+        base_for_osee = deep_merge_config(base_data, {"switcher": {"type": effective_type}})
+        base_data = _apply_osee_duet_defaults(base_for_osee, fill_unmapped_inputs=True)
+
+    if local_data:
+        base_data = deep_merge_config(base_data, local_data)
     return parse_config(base_data)
 
 

@@ -202,6 +202,7 @@ def render_config_html(config_editor: ConfigEditor, *, message: str = "") -> str
     switcher = payload["switcher"]
     ptz = payload["ptz"]
     joystick = payload["joystick"]
+    source_mappings = {item["source_id"]: item for item in payload.get("sources", {}).get("mappings", [])}
     cameras = ptz["cameras"]
     buttons = joystick["buttons"]
     source_options = payload.get("source_options", [])
@@ -213,13 +214,19 @@ def render_config_html(config_editor: ConfigEditor, *, message: str = "") -> str
 
     camera_rows = []
     for index, camera in enumerate(cameras):
+        logical_source = f"Input {index + 1}" if index < 8 else ""
+        mapping = source_mappings.get(logical_source, {})
+        mapping_field = logical_source.replace(" ", "_").replace("/", "_") if logical_source else ""
         camera_rows.append(
             "<tr>"
+            f"<td>{escape(logical_source)}</td>"
+            f"<td><input name='source_mapping_{mapping_field}' value='{_html_value(mapping.get('ptz_camera_id', camera['id']))}'></td>"
             f"<td><code>{escape(str(camera['id']))}</code><input type='hidden' name='camera_{index}_id' value='{_html_value(camera['id'])}'></td>"
+            f"<td><input type='checkbox' name='camera_{index}_enabled'{_checked(bool(camera['enabled']))}></td>"
             f"<td><input name='camera_{index}_name' value='{_html_value(camera['name'])}'></td>"
             f"<td><input name='camera_{index}_host' value='{_html_value(camera.get('host'))}'></td>"
             f"<td><input type='number' min='1' max='65535' name='camera_{index}_port' value='{_html_value(camera['port'])}'></td>"
-            f"<td><input type='checkbox' name='camera_{index}_enabled'{_checked(bool(camera['enabled']))}></td>"
+            f"<td><input type='number' min='1' max='7' name='camera_{index}_visca_id' value='{_html_value(camera.get('visca_id', 1))}'></td>"
             f"<td><input type='number' min='0' max='255' name='camera_{index}_preset_offset' value='{_html_value(camera.get('preset_offset', 0))}'></td>"
             "</tr>"
         )
@@ -295,7 +302,7 @@ def render_config_html(config_editor: ConfigEditor, *, message: str = "") -> str
 
   <fieldset>
     <legend>PTZ Cameras</legend>
-    <table><thead><tr><th>id</th><th>name</th><th>host</th><th>port</th><th>enabled</th><th>preset_offset</th></tr></thead><tbody>{''.join(camera_rows)}</tbody></table>
+    <table><thead><tr><th>logical input</th><th>mapped camera</th><th>id</th><th>enabled</th><th>name</th><th>host</th><th>port</th><th>VISCA ID</th><th>preset_offset</th></tr></thead><tbody>{''.join(camera_rows)}</tbody></table>
   </fieldset>
 
   <fieldset>

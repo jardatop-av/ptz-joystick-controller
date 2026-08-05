@@ -84,6 +84,7 @@ class EditablePtzCameraConfig(BaseModel):
     host: str | None = None
     port: int = Field(ge=1, le=65535)
     enabled: bool = True
+    visca_id: int = Field(default=1, ge=1, le=7)
     preset_offset: int = Field(default=0, ge=0, le=255)
 
     @field_validator("host")
@@ -96,6 +97,20 @@ class EditablePtzCameraConfig(BaseModel):
         if self.enabled and not self.host:
             raise ValueError(f"Camera {self.id} is enabled but host is empty.")
         return self
+
+
+class EditableSourceMappingConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    source_id: str = Field(min_length=1)
+    display_name: str | None = None
+    ptz_camera_id: str | None = None
+
+
+class EditableSourcesConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    mappings: list[EditableSourceMappingConfig]
 
 
 class EditableAxisInvertConfig(BaseModel):
@@ -153,6 +168,7 @@ class EditableConfigPatch(BaseModel):
 
     switcher: EditableSwitcherConfig
     ptz: EditablePtzConfig
+    sources: EditableSourcesConfig
     joystick: EditableJoystickConfig
 
     @model_validator(mode="after")
@@ -197,6 +213,7 @@ class ConfigEditor:
                         # the editor.  If the user explicitly enables one, the
                         # save validator requires a host before writing/apply.
                         "enabled": bool(camera.enabled and camera.host),
+                        "visca_id": camera.visca_id,
                         "preset_offset": getattr(camera, "preset_offset", 0),
                     }
                     for camera in self.current_config.ptz.cameras
@@ -205,6 +222,9 @@ class ConfigEditor:
                     "enabled": self.current_config.ptz.stop_watchdog.enabled,
                     "center_confirm_samples": self.current_config.ptz.stop_watchdog.center_confirm_samples,
                 },
+            },
+            "sources": {
+                "mappings": [mapping.model_dump(mode="json") for mapping in self.current_config.sources.mappings]
             },
             "joystick": {
                 "invert": {
@@ -270,10 +290,14 @@ class ConfigEditor:
                         # the editor.  If the user explicitly enables one, the
                         # save validator requires a host before writing/apply.
                         "enabled": bool(camera.enabled and camera.host),
+                        "visca_id": camera.visca_id,
                         "preset_offset": camera.preset_offset,
                     }
                     for camera in patch.ptz.cameras
                 ],
+            },
+            "sources": {
+                "mappings": [mapping.model_dump(mode="json") for mapping in patch.sources.mappings]
             },
             "joystick": {
                 "invert": patch.joystick.invert.model_dump(mode="json"),
@@ -310,6 +334,7 @@ class ConfigEditor:
                     "host": data.get(prefix + "host", camera.host or ""),
                     "port": _optional_int(data.get(prefix + "port"), camera.port),
                     "enabled": _checkbox(data, prefix + "enabled"),
+                    "visca_id": _optional_int(data.get(prefix + "visca_id"), camera.visca_id),
                     "preset_offset": _optional_int(data.get(prefix + "preset_offset"), getattr(camera, "preset_offset", 0)),
                 }
             )
@@ -327,12 +352,22 @@ class ConfigEditor:
             # runtime structure instead of lingering from a previous mapping.
             buttons[button_id] = entry
 
+        source_mappings: list[dict[str, Any]] = []
+        for mapping in self.current_config.sources.mappings:
+            mapped_camera = data.get(f"source_mapping_{mapping.source_id.replace(' ', '_').replace('/', '_')}", mapping.ptz_camera_id or "")
+            source_mappings.append({
+                "source_id": mapping.source_id,
+                "display_name": mapping.display_name,
+                "ptz_camera_id": str(mapped_camera).strip() or None,
+            })
+
         return {
             "switcher": {
                 "type": data.get("switcher_type", self.current_config.switcher.type),
                 "host": data.get("switcher_host", ""),
                 "port": _optional_int(data.get("switcher_port"), None),
             },
+            "sources": {"mappings": source_mappings},
             "ptz": {
                 "cameras": cameras,
                 "stop_watchdog": {

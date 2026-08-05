@@ -97,3 +97,12 @@ The Osee runtime exposes only logical sources (`Input 1`–`Input 8`, `MP1`, `MP
 - Web configuration exposes AUTO and ignores/disables source and preset payload fields for this action.
 - AUTO is dispatched through the abstract switcher interface.
 - Active PTZ movement is stopped through the existing `before_auto` safety path before the transition command.
+
+
+## Stage49 — Osee initial state and eight PTZ slots
+
+- GSP command type `res` is accepted alongside `get`, `set`, and `pus`.
+- Osee startup requests `pgmIndex`, `pvwIndex`, and `transitionStatus`; response or push messages initialize generic runtime state.
+- Initial Preview propagates through the normal event/state path and activates the mapped PTZ camera without Osee-specific routing.
+- Osee configurations receive logical Input 1–8 camera slots (`cam1`–`cam8`) and default mappings; MP1, MP2, and M/SRC remain unmapped.
+- The structured config page exposes all eight camera slots, VISCA IDs, and logical source-to-camera mappings.
