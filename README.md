@@ -115,3 +115,14 @@ The Osee runtime exposes only logical sources (`Input 1`–`Input 8`, `MP1`, `MP
 - Enabled cameras require a configured host; disabled camera slots do not create transport sessions.
 - Startup logs the selected PTZ transport mode once.
 - The Diagnostics VISCA section now spans the available desktop width, keeps the target address on one line where practical, and scrolls horizontally on smaller screens.
+
+
+## Stage51 — web UI usability and dark theme
+
+- Dark theme is the default across Dashboard, Config and Diagnostics.
+- A shared Dark/Light theme toggle persists the browser preference in localStorage.
+- The active navigation page is highlighted consistently.
+- Config provides Save and Save and Apply controls at both the top and bottom of the form.
+- Unsaved form changes are indicated without affecting theme selection.
+- Diagnostics uses a wider responsive desktop layout with horizontally scrollable tables on narrow screens.
+- Runtime, switcher, joystick, PTZ, VISCA, schema and systemd behavior are unchanged.
