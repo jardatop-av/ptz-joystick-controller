@@ -45,3 +45,13 @@ __all__ += [
     "crc16_modbus",
     "format_gsp_command",
 ]
+
+# Stage46: isolated GoStream Duet 8 ISO GSP mapping/control probe.
+from .osee_duet_gsp import OseeDuetGspController, OseeDuetSourceMap, OseeDuetSourceRef, OseeDuetState
+
+__all__ += [
+    "OseeDuetGspController",
+    "OseeDuetSourceMap",
+    "OseeDuetSourceRef",
+    "OseeDuetState",
+]

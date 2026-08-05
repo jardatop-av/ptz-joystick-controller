@@ -42,3 +42,26 @@ The script polls vMix PROGRAM/PREVIEW state by default. It sends commands only w
 When loading `config.example.yaml`, the application also loads `config.local.yaml` from the same directory if it exists. Local values are applied after the example config and override matching sections, including camera entries by `id` and source mappings by `source_id`.
 
 `config.local.yaml` is ignored by Git.
+
+## Stage46: Osee GoStream Duet 8 ISO GSP control probe
+
+Stage46 adds an isolated, model-specific GSP source mapping and control wrapper for
+GoStream Duet 8 ISO firmware 2.1.0. It is intentionally not connected to the main
+runtime Osee adapter yet.
+
+Logical source positions are translated only inside the Duet adapter:
+
+- Input 1..4 -> 1..4
+- Input 5..8 -> 4001..4004
+- MP1 -> 3010
+- MP2 -> 3020
+- M/SRC -> 5001
+
+Manual examples:
+
+```bash
+python scripts/manual_osee_duet_control.py --host 192.168.1.58 --preview 5 --watch
+python scripts/manual_osee_duet_control.py --host 192.168.1.58 --preview MP1 --watch
+python scripts/manual_osee_duet_control.py --host 192.168.1.58 --cut --watch
+python scripts/manual_osee_duet_control.py --host 192.168.1.58 --auto --watch
+```
