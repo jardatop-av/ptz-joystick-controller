@@ -24,7 +24,8 @@ def test_crc16_modbus_known_vector() -> None:
 
 def test_encode_get_command() -> None:
     packet = encode_gsp_command(GspCommand(id="device/status", type="get"))
-    assert packet.startswith(GSP_HEADER + b"\x00")
+    assert GSP_HEADER == b"\xEB\xA6"
+    assert packet.startswith(b"\xEB\xA6\x00")
     length = int.from_bytes(packet[3:5], "little")
     assert length == len(packet) - 5
     assert json.loads(packet[5:-2]) == {"id": "device/status", "type": "get"}
@@ -151,3 +152,24 @@ def test_send_get_uses_connected_socket() -> None:
     packet = transport.send_get("foo")
     assert fake.sent == [packet]
     assert decode_gsp_packet(packet) == GspCommand(id="foo", type="get")
+
+
+def test_real_hardware_wire_header_and_pgm_index_push_packet() -> None:
+    # Real-style compact GSP frame using the EB A6 wire header observed on
+    # GoStream Duet 8 ISO firmware 2.1.0.
+    packet = bytes.fromhex(
+        "eb a6 00 2c 00 "
+        "7b 22 69 64 22 3a 22 70 67 6d 49 6e 64 65 78 22 2c "
+        "22 74 79 70 65 22 3a 22 70 75 73 22 2c 22 76 61 6c "
+        "75 65 22 3a 5b 31 5d 7d 8b f8"
+    )
+    assert packet[:2] == b"\xEB\xA6"
+    assert decode_gsp_packet(packet) == GspCommand(id="pgmIndex", type="pus", value=(1,))
+
+
+def test_probe_human_readable_command_format() -> None:
+    from ptz_joystick_controller.switchers.osee_gsp import format_gsp_command
+
+    assert format_gsp_command(GspCommand(id="pgmIndex", type="pus", value=(1,))) == "pus pgmIndex = [1]"
+    assert format_gsp_command(GspCommand(id="pvwIndex", type="pus", value=(5001,))) == "pus pvwIndex = [5001]"
+    assert format_gsp_command(GspCommand(id="transitionStatus", type="pus", value=(1,))) == "pus transitionStatus = [1]"

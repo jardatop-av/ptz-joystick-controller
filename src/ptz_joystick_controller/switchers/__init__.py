@@ -36,11 +36,12 @@ __all__ = [
 ]
 
 # Stage45: optional Osee GoStream Series Protocol transport (not wired into runtime adapter yet).
-from .osee_gsp import GspCommand, GspStreamParser, OseeGspTransport, crc16_modbus
+from .osee_gsp import GspCommand, GspStreamParser, OseeGspTransport, crc16_modbus, format_gsp_command
 
 __all__ += [
     "GspCommand",
     "GspStreamParser",
     "OseeGspTransport",
     "crc16_modbus",
+    "format_gsp_command",
 ]

@@ -6,7 +6,7 @@ import logging
 import socket
 from typing import Callable, Iterable, Literal, Protocol
 
-GSP_HEADER = b"\xA6\xEB"
+GSP_HEADER = b"\xEB\xA6"
 GSP_PROTO_ID = 0
 GSP_MIN_LENGTH = 2  # CRC only
 GSP_MAX_LENGTH = 0xFFFF
@@ -60,6 +60,13 @@ class GspCommand:
                 raise GspProtocolError("GSP command value items must be numbers or strings")
             parsed_value = tuple(command_value)
         return cls(id=command_id, type=command_type, value=parsed_value)
+
+
+def format_gsp_command(command: GspCommand) -> str:
+    """Return a compact, human-readable decoded command for probes/logging."""
+    if command.value is None:
+        return f"{command.type} {command.id}"
+    return f"{command.type} {command.id} = {list(command.value)}"
 
 
 def crc16_modbus(data: bytes, initial: int = 0xFFFF) -> int:

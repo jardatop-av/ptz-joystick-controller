@@ -15,6 +15,7 @@ if str(SRC) not in sys.path:
 from ptz_joystick_controller.switchers.osee_gsp import (  # noqa: E402
     GspTransportError,
     OseeGspTransport,
+    format_gsp_command,
 )
 
 
@@ -52,7 +53,7 @@ def main() -> int:
         deadline = time.monotonic() + max(0.0, args.duration)
         while time.monotonic() < deadline:
             for command in transport.receive():
-                print(f"Received type={command.type} id={command.id} value={command.value}")
+                print(format_gsp_command(command), flush=True)
     except KeyboardInterrupt:
         print("Interrupted by user")
     except GspTransportError as exc:
