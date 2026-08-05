@@ -35,7 +35,7 @@ __all__ = [
     "get_switcher_capabilities",
 ]
 
-# Stage45: optional Osee GoStream Series Protocol transport (not wired into runtime adapter yet).
+# Osee GoStream Series Protocol transport used by the runtime Duet backend.
 from .osee_gsp import GspCommand, GspStreamParser, OseeGspTransport, crc16_modbus, format_gsp_command
 
 __all__ += [

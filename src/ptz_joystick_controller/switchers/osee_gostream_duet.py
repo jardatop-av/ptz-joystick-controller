@@ -16,8 +16,6 @@ from ..models.switcher import (
 from ..models.tally import SourceTally, TallyState
 from .base import AbstractSwitcher
 from .capabilities import get_available_sources, get_switcher_capabilities
-from .http_client import HttpClient
-from .osee_base import OseeApiProfile, OseeSwitcherBase
 from .osee_duet_gsp import OseeDuetGspController, OseeDuetSourceMap
 from .osee_gsp import GspCommand, GspTransportError, OseeGspTransport
 
@@ -40,18 +38,6 @@ TransportFactory = Callable[[str, int], OseeDuetTransport]
 
 def _default_transport_factory(host: str, port: int) -> OseeDuetTransport:
     return OseeGspTransport(host, port, connect_timeout=2.0, read_timeout=0.02)
-
-
-@dataclass
-class OseeGoStreamDuetHttpPlaceholder(OseeSwitcherBase):
-    """Legacy HTTP placeholder retained for compatibility and isolated tests."""
-
-    def __init__(self, http: HttpClient, profile: OseeApiProfile | None = None) -> None:
-        super().__init__(
-            switcher_type=SwitcherType.OSEE_GOSTREAM_DUET,
-            http=http,
-            profile=profile or OseeApiProfile(),
-        )
 
 
 @dataclass

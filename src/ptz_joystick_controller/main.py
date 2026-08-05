@@ -1,33 +1,35 @@
 from __future__ import annotations
 
+import argparse
+import logging
 from pathlib import Path
 
-from .app_state import AppState
-from .config import ControllerConfig, load_config
-from .event_bus import EventBus
-from .state_machine.preview_program import PreviewProgramStateMachine
-from .state_machine.ptz_control import PtzControlStateMachine
-from .state_machine.transitions import TransitionCoordinator
+from .config import load_config
+from .runtime.application import RuntimeApplication
 
 
-class Application:
-    def __init__(self, config: ControllerConfig) -> None:
-        self.event_bus = EventBus()
-        self.state = AppState(config=config)
-        self.ptz_control = PtzControlStateMachine(self.state, self.event_bus)
-        self.preview_program = PreviewProgramStateMachine(self.state, self.event_bus, self.ptz_control)
-        self.transitions = TransitionCoordinator(self.preview_program, self.ptz_control)
-
-    def start(self) -> None:
-        self.event_bus.publish("app.started", {"device_name": self.state.config.app.device_name})
-
-
-def create_application(config_path: str | Path) -> Application:
-    return Application(load_config(config_path))
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="PTZ Joystick Controller runtime")
+    parser.add_argument("--config", default="config.example.yaml")
+    parser.add_argument("--dry-run", action="store_true", help="Use offline fake switcher and fake PTZ transports")
+    parser.add_argument("--no-web", action="store_true")
+    parser.add_argument("--poll-interval", type=float, default=0.05)
+    return parser.parse_args()
 
 
 def main() -> int:
-    # Hardware-free startup path for stage-1 validation.
+    args = parse_args()
+    config = load_config(Path(args.config))
+    logging.basicConfig(
+        level=getattr(logging, config.app.log_level.upper(), logging.INFO),
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
+    app = RuntimeApplication(config, dry_run=args.dry_run)
+    try:
+        app.run_forever(interval=args.poll_interval, start_web=not args.no_web)
+    except KeyboardInterrupt:
+        logging.getLogger(__name__).info("Runtime stopped by user")
+        return 0
     return 0
 
 

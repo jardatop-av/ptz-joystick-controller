@@ -74,3 +74,19 @@ configured host and optional port; the default GSP TCP port is `19010`.
 Generic runtime code uses logical sources `Input 1` through `Input 8`, `MP1`,
 `MP2`, and `M/SRC`. Device-side numeric GSP source IDs remain private to the
 Duet adapter.
+
+## Stage47 Fix — main runtime backend selection
+
+The main runtime can now be started directly with:
+
+```bash
+python -m ptz_joystick_controller.main --config config.example.yaml
+```
+
+`switcher.type` selects exactly one runtime backend:
+
+- `vmix` — vMix HTTP backend, default port 8088
+- `atem` / `atem_mini_pro` — existing ATEM abstraction
+- `osee` / `osee_gostream_duet` — verified Osee GoStream Duet 8 ISO GSP backend, default TCP port 19010
+
+The Osee runtime exposes only logical sources (`Input 1`–`Input 8`, `MP1`, `MP2`, `M/SRC`). Numeric GSP source IDs remain private to the Duet adapter.

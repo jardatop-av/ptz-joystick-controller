@@ -79,8 +79,11 @@ class SwitcherConfig(BaseModel):
     @classmethod
     def validate_switcher_type(cls, value: str) -> str:
         normalized = value.lower()
-        if normalized == "osee":
-            normalized = SwitcherType.OSEE_GOSTREAM_DUET.value
+        aliases = {
+            "osee": SwitcherType.OSEE_GOSTREAM_DUET.value,
+            "atem": SwitcherType.ATEM_MINI_PRO.value,
+        }
+        normalized = aliases.get(normalized, normalized)
         if normalized not in SUPPORTED_SWITCHERS:
             raise ValueError(f"Unsupported switcher.type: {value}")
         return normalized

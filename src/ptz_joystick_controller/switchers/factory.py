@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 from ..models.switcher import SwitcherConfig, SwitcherType
 from .atem import AtemCommandClient, AtemSwitcher
 from .base import AbstractSwitcher
@@ -8,6 +10,8 @@ from .http_client import HttpClient, HttpTransport
 from .osee_gostream_deck import OseeGoStreamDeckSwitcher
 from .osee_gostream_duet import OseeGoStreamDuetSwitcher, TransportFactory
 from .vmix import VmixSwitcher
+
+LOGGER = logging.getLogger(__name__)
 
 
 def create_offline_switcher(config: SwitcherConfig) -> AbstractSwitcher:
@@ -19,6 +23,17 @@ def _base_url(config: SwitcherConfig, default_port: int) -> str:
         raise ValueError("Real switcher backend requires switcher.host")
     port = config.port or default_port
     return f"http://{config.host}:{port}"
+
+
+def switcher_backend_name(config: SwitcherConfig) -> str:
+    switcher_type = SwitcherType(config.type)
+    return {
+        SwitcherType.VMIX: "vMix",
+        SwitcherType.ATEM_MINI_PRO: "ATEM",
+        SwitcherType.ATEM_TV_STUDIO_PRO_4K: "ATEM Television Studio Pro 4K",
+        SwitcherType.OSEE_GOSTREAM_DECK: "Osee GoStream Deck",
+        SwitcherType.OSEE_GOSTREAM_DUET: "Osee GoStream Duet 8 ISO",
+    }[switcher_type]
 
 
 def create_switcher(

@@ -13,6 +13,7 @@ from ..config import ControllerConfig, deep_merge_config, dump_config, load_yaml
 from ..joystick.button_metadata import CANONICAL_BUTTON_IDS, ButtonMetadataRegistry
 from ..models.joystick import ButtonAction, ButtonMapping
 from ..storage.atomic_write import atomic_write_text
+from ..switchers.capabilities import get_source_ids
 
 _HOST_RE = re.compile(r"^[A-Za-z0-9_.:-]+$")
 _ALLOWED_FORM_BUTTON_ACTIONS = {
@@ -64,6 +65,7 @@ def validate_enabled_ptz_camera_hosts_in_mapping(data: Mapping[str, Any]) -> Non
 class EditableSwitcherConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    type: str
     host: str | None = None
     port: int | None = Field(default=None, ge=1, le=65535)
 
@@ -177,7 +179,9 @@ class ConfigEditor:
     def editable_payload(self) -> dict[str, Any]:
         registry = ButtonMetadataRegistry(getattr(self.current_config.joystick, "button_labels", {}))
         return {
+            "source_options": list(get_source_ids(self.current_config.switcher.type)),
             "switcher": {
+                "type": self.current_config.switcher.type,
                 "host": self.current_config.switcher.host,
                 "port": self.current_config.switcher.port,
             },
@@ -226,6 +230,11 @@ class ConfigEditor:
 
     def validate_patch(self, raw_patch: dict[str, Any]) -> EditableConfigPatch:
         patch_data = _strip_non_editable_metadata(raw_patch)
+        switcher_data = patch_data.get("switcher")
+        if isinstance(switcher_data, dict):
+            switcher_data = dict(switcher_data)
+            switcher_data.setdefault("type", self.current_config.switcher.type)
+            patch_data["switcher"] = switcher_data
         try:
             return EditableConfigPatch.model_validate(patch_data)
         except ValidationError as exc:
@@ -241,6 +250,7 @@ class ConfigEditor:
     def patch_to_local_override(self, patch: EditableConfigPatch) -> dict[str, Any]:
         return {
             "switcher": {
+                "type": patch.switcher.type,
                 "host": patch.switcher.host,
                 "port": patch.switcher.port,
             },
@@ -318,6 +328,7 @@ class ConfigEditor:
 
         return {
             "switcher": {
+                "type": data.get("switcher_type", self.current_config.switcher.type),
                 "host": data.get("switcher_host", ""),
                 "port": _optional_int(data.get("switcher_port"), None),
             },
@@ -392,6 +403,7 @@ class ConfigEditor:
 
 def _strip_non_editable_metadata(raw_patch: dict[str, Any]) -> dict[str, Any]:
     data = dict(raw_patch)
+    data.pop("source_options", None)
     joystick = data.get("joystick")
     if isinstance(joystick, dict) and "button_metadata" in joystick:
         joystick = dict(joystick)

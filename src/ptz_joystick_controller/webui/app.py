@@ -203,6 +203,7 @@ def render_config_html(config_editor: ConfigEditor, *, message: str = "") -> str
     joystick = payload["joystick"]
     cameras = ptz["cameras"]
     buttons = joystick["buttons"]
+    source_options = payload.get("source_options", [])
     # Render the raw editor from the currently loaded configuration without
     # applying save-time validation. Generic example configs may intentionally
     # contain disabled/incomplete hardware placeholders; validation runs on
@@ -232,7 +233,7 @@ def render_config_html(config_editor: ConfigEditor, *, message: str = "") -> str
             f"<td><code>{escape(button_id)}</code></td>"
             f"<td>{escape(label)}</td>"
             f"<td><select name='button_{button_id}_action'>{_button_action_options(action)}</select></td>"
-            f"<td><input name='button_{button_id}_source_id' value='{_html_value(mapping.get('source_id'))}' placeholder='Input 1'></td>"
+            f"<td><input name='button_{button_id}_source_id' list='source-options' value='{_html_value(mapping.get('source_id'))}' placeholder='Input 1'></td>"
             f"<td><input type='number' min='0' max='255' name='button_{button_id}_preset_number' value='{_html_value(mapping.get('preset_number'))}'></td>"
             "</tr>"
         )
@@ -275,11 +276,20 @@ def render_config_html(config_editor: ConfigEditor, *, message: str = "") -> str
 <div id="message" class="message ok">{escape(status_message)}</div>
 
 <h2>Basic configuration</h2>
+<datalist id="source-options">{''.join(f'<option value="{_html_value(source_id)}"></option>' for source_id in source_options)}</datalist>
 <form method="post" action="/config/basic" id="basic-config-form">
   <fieldset>
     <legend>Switcher</legend>
+    <label>Type
+      <select name="switcher_type" id="switcher-type">
+        <option value="vmix"{_selected(switcher.get('type'), 'vmix')}>vMix</option>
+        <option value="atem_mini_pro"{_selected(switcher.get('type'), 'atem_mini_pro')}>ATEM</option>
+        <option value="osee_gostream_duet"{_selected(switcher.get('type'), 'osee_gostream_duet')}>Osee GoStream Duet 8 ISO</option>
+      </select>
+    </label>
     <label>Host <input name="switcher_host" value="{_html_value(switcher.get('host'))}"></label>
-    <label>Port <input type="number" min="1" max="65535" name="switcher_port" value="{_html_value(switcher.get('port'))}"></label>
+    <label>Port <input id="switcher-port" type="number" min="1" max="65535" name="switcher_port" value="{_html_value(switcher.get('port'))}"></label>
+    <small id="switcher-sources"></small>
   </fieldset>
 
   <fieldset>
@@ -317,6 +327,21 @@ def render_config_html(config_editor: ConfigEditor, *, message: str = "") -> str
   <br><button type="submit" name="apply" value="0">Save Advanced YAML editor</button>
   <button type="submit" name="apply" value="1">Save and apply Advanced YAML editor</button>
 </form>
+<script>
+const switcherType = document.getElementById('switcher-type');
+const switcherPort = document.getElementById('switcher-port');
+const switcherSources = document.getElementById('switcher-sources');
+function updateSwitcherHints() {{
+  if (!switcherType || !switcherPort || !switcherSources) return;
+  const type = switcherType.value;
+  if (!switcherPort.value) switcherPort.value = type === 'osee_gostream_duet' ? '19010' : (type === 'vmix' ? '8088' : '');
+  switcherSources.textContent = type === 'osee_gostream_duet'
+    ? 'Logical sources: Input 1–8, MP1, MP2, M/SRC'
+    : (type === 'vmix' ? 'Logical sources: Input 1–100' : 'Logical sources depend on ATEM model');
+}}
+if (switcherType) switcherType.addEventListener('change', () => {{ switcherPort.value = ''; updateSwitcherHints(); }});
+updateSwitcherHints();
+</script>
 </body>
 </html>"""
 
