@@ -11,6 +11,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 
 from .config_editor import ConfigEditError, ConfigEditor
 from .config_runtime import RuntimeConfigApplier
+from .discovery_panel import DiscoveryJobManager
 from ..config import ConfigError
 from ..joystick.button_metadata import CANONICAL_BUTTON_IDS, ButtonMetadataRegistry
 from ..models.joystick import ButtonAction
@@ -397,6 +398,24 @@ def render_config_html(config_editor: ConfigEditor, *, message: str = "") -> str
     .unsaved-indicator {{ display: none; color: var(--warning); font-weight: 700; }}
     .unsaved-indicator.visible {{ display: inline; }}
     .message {{ margin: .75rem 0; padding: .6rem; border-radius: .5rem; border: 1px solid var(--border); }}
+    .discovery-panel {{ border: 1px solid var(--border); border-radius: .75rem; margin: .75rem 0; background: var(--panel); overflow: hidden; }}
+    .discovery-panel > summary {{ cursor: pointer; font-weight: 700; padding: .85rem; background: var(--panel-alt); }}
+    .discovery-body {{ padding: .85rem; }}
+    .discovery-controls {{ display: flex; align-items: center; flex-wrap: wrap; gap: .55rem; margin-bottom: .65rem; }}
+    .discovery-advanced {{ margin: .65rem 0; padding: .65rem; border: 1px solid var(--border); border-radius: .5rem; }}
+    .discovery-progress {{ display: none; align-items: center; gap: .55rem; margin: .55rem 0; }}
+    .discovery-progress.visible {{ display: flex; }}
+    .spinner {{ width: 1rem; height: 1rem; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; }}
+    @keyframes spin {{ to {{ transform: rotate(360deg); }} }}
+    .discovery-table-wrap {{ overflow-x: auto; max-width: 100%; border: 1px solid var(--border); border-radius: .45rem; }}
+    .discovery-table {{ min-width: 760px; table-layout: fixed; }}
+    .discovery-table th:nth-child(1) {{ width: 10%; }} .discovery-table th:nth-child(2) {{ width: 12%; }}
+    .discovery-table th:nth-child(3) {{ width: 18%; }} .discovery-table th:nth-child(4) {{ width: 10%; }}
+    .discovery-table th:nth-child(5) {{ width: 34%; }} .discovery-table th:nth-child(6) {{ width: 16%; }}
+    .discovery-table td {{ overflow-wrap: anywhere; word-break: break-word; }}
+    .copy-actions {{ display: flex; gap: .3rem; flex-wrap: wrap; }}
+    .copy-actions button {{ padding: .35rem .5rem; font-weight: 600; }}
+    .copy-confirm {{ color: var(--success); min-height: 1.2em; }}
     .ok {{ color: var(--success); }}
     .bad {{ color: var(--error); white-space: pre-wrap; }}
     @media (max-width: 700px) {{ body {{ padding: .6rem; }} th, td {{ min-width: 7rem; }} }}
@@ -431,6 +450,33 @@ def render_config_html(config_editor: ConfigEditor, *, message: str = "") -> str
     <label>Port <input id="switcher-port" type="number" min="1" max="65535" name="switcher_port" value="{_html_value(switcher.get('port'))}"></label>
     <small id="switcher-sources"></small>
   </fieldset>
+
+  <details id="discovery-panel" class="discovery-panel">
+    <summary>Discovery</summary>
+    <div class="discovery-body">
+      <p>Read-only network scan. Results are not written to configuration.</p>
+      <div class="discovery-controls">
+        <button type="button" id="discovery-scan" class="primary">Scan Local Network</button>
+        <button type="button" id="discovery-cancel" disabled>Cancel</button>
+        <span id="discovery-copy-confirm" class="copy-confirm" role="status"></span>
+      </div>
+      <details class="discovery-advanced">
+        <summary>Advanced</summary>
+        <label>Subnet <input id="discovery-cidr" placeholder="Auto-detected local subnet"></label>
+        <label>Timeout <input id="discovery-timeout" type="number" min="0.05" max="30" step="0.05" value="0.5"></label>
+        <label>Concurrency <input id="discovery-concurrency" type="number" min="1" max="256" value="32"></label>
+        <label><input id="discovery-protocol-osee" type="checkbox" checked> Osee</label>
+        <label><input id="discovery-protocol-vmix" type="checkbox" checked> vMix</label>
+        <label><input id="discovery-protocol-visca" type="checkbox" checked> VISCA</label>
+        <label title="Read-only discovery not yet implemented."><input type="checkbox" disabled> ATEM</label>
+      </details>
+      <div id="discovery-progress" class="discovery-progress"><span class="spinner" aria-hidden="true"></span><span id="discovery-progress-text">Preparing scan…</span></div>
+      <div id="discovery-error" class="bad" role="alert"></div>
+      <div class="discovery-table-wrap">
+        <table class="discovery-table"><thead><tr><th>Type</th><th>Status</th><th>IP Address</th><th>Port</th><th>Details</th><th>Copy</th></tr></thead><tbody id="discovery-results"><tr><td colspan="6">No scan results.</td></tr></tbody></table>
+      </div>
+    </div>
+  </details>
 
   <fieldset>
     <legend>PTZ Cameras</legend>
@@ -512,6 +558,61 @@ if (basicForm) {{
   basicForm.addEventListener('change', updateUnsavedState);
 }}
 </script>
+<script>
+(function () {{
+  const panel = document.getElementById('discovery-panel');
+  const scanButton = document.getElementById('discovery-scan');
+  const cancelButton = document.getElementById('discovery-cancel');
+  const progress = document.getElementById('discovery-progress');
+  const progressText = document.getElementById('discovery-progress-text');
+  const resultBody = document.getElementById('discovery-results');
+  const errorBox = document.getElementById('discovery-error');
+  const copyConfirm = document.getElementById('discovery-copy-confirm');
+  let jobId = null;
+  let pollTimer = null;
+  if (!panel || !scanButton) return;
+  panel.open = localStorage.getItem('ptz-discovery-expanded') === 'true';
+  panel.addEventListener('toggle', () => localStorage.setItem('ptz-discovery-expanded', String(panel.open)));
+  function esc(value) {{ return String(value ?? '').replace(/[&<>"']/g, c => ({{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}}[c])); }}
+  function selectedProtocols() {{ return ['osee','vmix','visca'].filter(p => document.getElementById('discovery-protocol-' + p)?.checked); }}
+  function setRunning(running) {{ scanButton.disabled = running; cancelButton.disabled = !running; progress.classList.toggle('visible', running); }}
+  function renderResults(rows) {{
+    if (!rows.length) {{ resultBody.innerHTML = '<tr><td colspan="6">No devices confirmed.</td></tr>'; return; }}
+    resultBody.innerHTML = rows.map(row => {{
+      const target = row.port == null ? row.ip : `${{row.ip}}:${{row.port}}`;
+      const stateClass = row.status === 'confirmed' ? 'ok' : row.status === 'error' ? 'bad' : 'warning';
+      return `<tr><td>${{esc(row.type)}}</td><td class="${{stateClass}}">${{esc(row.status.charAt(0).toUpperCase() + row.status.slice(1))}}</td><td class="mono">${{esc(row.ip)}}</td><td>${{esc(row.port ?? '')}}</td><td>${{esc(row.details)}}</td><td><div class="copy-actions"><button type="button" data-copy="${{esc(row.ip)}}">Copy IP</button><button type="button" data-copy="${{esc(target)}}">Copy IP:Port</button></div></td></tr>`;
+    }}).join('');
+  }}
+  async function poll() {{
+    if (!jobId) return;
+    const response = await fetch(`/api/discovery/jobs/${{jobId}}`, {{cache:'no-store'}}); const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Discovery status failed');
+    const percent = data.total ? Math.round((data.completed / data.total) * 100) : 0;
+    progressText.textContent = `${{data.status}}: ${{data.completed}}/${{data.total}} (${{percent}}%)`;
+    if (['complete','cancelled','error'].includes(data.status)) {{
+      clearInterval(pollTimer); pollTimer = null; setRunning(false); renderResults(data.results || []); errorBox.textContent = data.error || ''; jobId = null;
+    }}
+  }}
+  scanButton.addEventListener('click', async () => {{
+    errorBox.textContent = ''; resultBody.innerHTML = '<tr><td colspan="6">Scanning…</td></tr>'; setRunning(true);
+    try {{
+      const response = await fetch('/api/discovery/scan', {{method:'POST', headers:{{'Content-Type':'application/json'}}, body:JSON.stringify({{
+        cidr: document.getElementById('discovery-cidr').value || null,
+        timeout: Number(document.getElementById('discovery-timeout').value), concurrency: Number(document.getElementById('discovery-concurrency').value), protocols: selectedProtocols()
+      }})}});
+      const data = await response.json(); if (!response.ok) throw new Error(data.error || 'Discovery scan failed');
+      jobId = data.job_id; progressText.textContent = 'Scanning…'; await poll(); pollTimer = setInterval(() => poll().catch(e => {{ errorBox.textContent = e.message; setRunning(false); }}), 500);
+    }} catch (error) {{ errorBox.textContent = String(error); setRunning(false); }}
+  }});
+  cancelButton.addEventListener('click', async () => {{ if (jobId) await fetch(`/api/discovery/jobs/${{jobId}}/cancel`, {{method:'POST'}}); }});
+  resultBody.addEventListener('click', async event => {{
+    const button = event.target.closest('button[data-copy]'); if (!button) return;
+    await navigator.clipboard.writeText(button.dataset.copy); copyConfirm.textContent = `Copied ${{button.dataset.copy}}`; setTimeout(() => {{ copyConfirm.textContent = ''; }}, 1600);
+  }});
+  fetch('/api/discovery/defaults', {{cache:'no-store'}}).then(r => r.json()).then(data => {{ const cidr = document.getElementById('discovery-cidr'); if (cidr && !cidr.value) cidr.value = data.cidr || ''; }}).catch(() => {{}});
+}})();
+</script>
 {THEME_SCRIPT}
 </div></body>
 </html>"""
@@ -522,6 +623,7 @@ def create_web_app(
     *,
     config_example_path: str | Path = "config.example.yaml",
     config_local_path: str | Path = "config.local.yaml",
+    discovery_manager: DiscoveryJobManager | None = None,
 ) -> FastAPI:
     app = FastAPI(title="PTZ Joystick Controller")
     config_editor = ConfigEditor(
@@ -535,6 +637,8 @@ def create_web_app(
         local_config_path=Path(config_local_path),
     )
     status_provider.config_apply_status = config_applier.status
+    discovery_manager = discovery_manager or DiscoveryJobManager()
+    app.state.discovery_manager = discovery_manager
 
     @app.get("/health")
     def health() -> dict[str, str]:
@@ -560,6 +664,35 @@ def create_web_app(
             return JSONResponse(result)
         except (ConfigError, ConfigEditError, Exception) as exc:
             return JSONResponse({"status": "error", "error": str(exc), "message": str(exc)}, status_code=400)
+
+    @app.get("/api/discovery/defaults")
+    def api_discovery_defaults() -> JSONResponse:
+        try:
+            return JSONResponse(discovery_manager.defaults())
+        except ValueError as exc:
+            return JSONResponse({"cidr": "", "error": str(exc)})
+
+    @app.post("/api/discovery/scan")
+    async def api_discovery_scan(request: Request) -> JSONResponse:
+        try:
+            payload = await request.json()
+            job = discovery_manager.start(
+                cidr=payload.get("cidr"), timeout=float(payload.get("timeout", 0.5)),
+                concurrency=int(payload.get("concurrency", 32)), protocols=payload.get("protocols", ["osee", "vmix", "visca"]),
+            )
+            return JSONResponse(job.payload(), status_code=202)
+        except (ValueError, TypeError) as exc:
+            return JSONResponse({"status": "error", "error": str(exc)}, status_code=400)
+
+    @app.get("/api/discovery/jobs/{job_id}")
+    def api_discovery_job(job_id: str) -> JSONResponse:
+        job = discovery_manager.get(job_id)
+        return JSONResponse(job.payload()) if job is not None else JSONResponse({"status": "error", "error": "Discovery job not found"}, status_code=404)
+
+    @app.post("/api/discovery/jobs/{job_id}/cancel")
+    def api_discovery_cancel(job_id: str) -> JSONResponse:
+        job = discovery_manager.cancel(job_id)
+        return JSONResponse(job.payload()) if job is not None else JSONResponse({"status": "error", "error": "Discovery job not found"}, status_code=404)
 
     @app.get("/config", response_class=HTMLResponse)
     def config_page() -> HTMLResponse:

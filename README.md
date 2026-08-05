@@ -126,3 +126,18 @@ The Osee runtime exposes only logical sources (`Input 1`–`Input 8`, `MP1`, `MP
 - Unsaved form changes are indicated without affecting theme selection.
 - Diagnostics uses a wider responsive desktop layout with horizontally scrollable tables on narrow screens.
 - Runtime, switcher, joystick, PTZ, VISCA, schema and systemd behavior are unchanged.
+
+## Manual read-only network discovery
+
+Stage52 Lite adds a standalone operator probe. It does not start the production runtime, write configuration, or send switching/PTZ movement commands.
+
+```bash
+python scripts/manual_network_discovery.py --cidr 192.168.1.0/24
+python scripts/manual_network_discovery.py --interface eth0 --protocols vmix,osee,visca --debug
+```
+
+Only private RFC1918 or IPv4 link-local networks up to /16 are accepted. ATEM is intentionally not actively identified until a verified read-only handshake exists in the project.
+
+## Stage52A embedded discovery panel
+
+The Config page now contains a collapsed, read-only **Discovery** panel. It reuses the Stage52 Lite vMix, Osee GSP and VISCA probes, keeps results only in browser memory, and never writes configuration or starts the production runtime. Scans support bounded concurrency, progress polling, cancellation, and clipboard copy helpers for IP and IP:port values.
