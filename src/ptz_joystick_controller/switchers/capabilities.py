@@ -57,7 +57,7 @@ AVAILABLE_SOURCES_BY_SWITCHER: dict[SwitcherType, tuple[Source, ...]] = {
         _source("BLACK", "BLACK", SourceType.BLACK),
     ),
     SwitcherType.OSEE_GOSTREAM_DUET: (
-        *_camera_sources(8),
+        *_vmix_sources(8),
         _source("MP1", "MP1", SourceType.MEDIA_PLAYER),
         _source("MP2", "MP2", SourceType.MEDIA_PLAYER),
         _source("M/SRC", "M/SRC", SourceType.INTERNAL),

@@ -16,7 +16,7 @@ from ptz_joystick_controller.switchers.factory import create_switcher as factory
         (SwitcherType.OSEE_GOSTREAM_DECK, ("CH1", "CH2", "CH3", "CH4", "AUX", "STILL1", "STILL2", "BLACK")),
         (
             SwitcherType.OSEE_GOSTREAM_DUET,
-            ("CH1", "CH2", "CH3", "CH4", "CH5", "CH6", "CH7", "CH8", "MP1", "MP2", "M/SRC"),
+            ("Input 1", "Input 2", "Input 3", "Input 4", "Input 5", "Input 6", "Input 7", "Input 8", "MP1", "MP2", "M/SRC"),
         ),
         (SwitcherType.ATEM_MINI_PRO, ("CH1", "CH2", "CH3", "CH4")),
         (

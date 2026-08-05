@@ -17,6 +17,7 @@ class AppState:
     active_ptz_camera_id: str | None = None
     joystick_connected: bool = False
     switcher_connected: bool = False
+    transition_state: object | None = None
     last_error: str | None = None
     stop_requests: list[str] = field(default_factory=list)
 

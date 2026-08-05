@@ -65,3 +65,12 @@ python scripts/manual_osee_duet_control.py --host 192.168.1.58 --preview MP1 --w
 python scripts/manual_osee_duet_control.py --host 192.168.1.58 --cut --watch
 python scripts/manual_osee_duet_control.py --host 192.168.1.58 --auto --watch
 ```
+
+## Stage47 — Osee GoStream Duet 8 ISO runtime backend
+
+The verified GSP transport is now available through the generic switcher runtime.
+Use `switcher.type: osee` (normalized internally to `osee_gostream_duet`) with a
+configured host and optional port; the default GSP TCP port is `19010`.
+Generic runtime code uses logical sources `Input 1` through `Input 8`, `MP1`,
+`MP2`, and `M/SRC`. Device-side numeric GSP source IDs remain private to the
+Duet adapter.

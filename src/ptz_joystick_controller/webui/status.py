@@ -124,6 +124,7 @@ class RuntimeStatusProvider:
                 "last_http_error": None,
                 "last_sync_time": None,
                 "last_command": None,
+                "transition_state": self.state.transition_state,
             }
         status = self.switcher.get_status()
         transition_log = getattr(self.switcher, "transition_log", None)
@@ -137,6 +138,7 @@ class RuntimeStatusProvider:
             "last_http_error": getattr(self.switcher, "last_error", None),
             "last_sync_time": getattr(self.switcher, "last_sync_at", None),
             "last_command": transition_log[-1] if transition_log else None,
+            "transition_state": getattr(self.switcher, "transition_state", self.state.transition_state),
         }
 
     def ptz_status(self) -> dict[str, Any]:
@@ -303,5 +305,6 @@ class RuntimeStatusProvider:
             "preview": switcher["preview_source"],
             "program": switcher["program_source"],
             "active_ptz_camera": ptz["active_camera"],
+            "transition": switcher.get("transition_state"),
             "uptime": self.uptime_seconds,
         }

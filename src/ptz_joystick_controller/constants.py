@@ -10,6 +10,7 @@ SUPPORTED_SWITCHERS = {
     "atem_tv_studio_pro_4k",
     "osee_gostream_deck",
     "osee_gostream_duet",
+    "osee",
 }
 
 BUTTON_ACTIONS = {

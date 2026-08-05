@@ -8,6 +8,7 @@ from ..models.commands import Command, CommandError, CommandType, EventType
 from ..models.joystick import ButtonAction
 from ..models.joystick_input import ButtonEvent
 from .button_metadata import ButtonMetadataRegistry
+from ..switchers.capabilities import get_source_ids
 
 
 @dataclass
@@ -43,7 +44,12 @@ class JoystickActionDispatcher:
         if mapping.action == ButtonAction.PREVIEW_SOURCE:
             if mapping.source_id is None:
                 raise CommandError(f"Button {button_name} preview_source action has no source_id")
-            if not self.config.sources.has_source(mapping.source_id):
+            configured = self.config.sources.has_source(mapping.source_id)
+            try:
+                switcher_supported = mapping.source_id in set(get_source_ids(self.config.switcher.type))
+            except Exception:
+                switcher_supported = False
+            if not configured and not switcher_supported:
                 raise CommandError(f"Button {button_name} references unsupported source_id: {mapping.source_id}")
             return Command(
                 type=CommandType.SET_PREVIEW_SOURCE,

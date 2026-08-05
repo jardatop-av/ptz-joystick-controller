@@ -48,6 +48,10 @@ class SwitcherCommandExecutor:
             return
 
         self.state.switcher_connected = self.switcher.is_connected()
+        transition_state = getattr(self.switcher, "transition_state", None)
+        if transition_state != self.state.transition_state:
+            self.state.transition_state = transition_state
+            self.event_bus.publish("switcher.transition_state", {"transition_state": transition_state})
         program = self.switcher.get_program_source()
         preview = self.switcher.get_preview_source()
         if program != self.state.program_source_id:
@@ -69,6 +73,7 @@ class SwitcherCommandExecutor:
                 "preview_source_id": self.state.preview_source_id,
                 "active_ptz_camera_id": self.state.active_ptz_camera_id,
                 "connected": self.state.switcher_connected,
+                "transition_state": self.state.transition_state,
             },
         )
 

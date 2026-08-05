@@ -78,8 +78,14 @@ class ControllerConfig(BaseModel):
                 )
 
         source_ids = self.sources.source_ids()
+        try:
+            from .switchers.capabilities import get_source_ids
+            switcher_source_ids = set(get_source_ids(self.switcher.type))
+        except Exception:
+            switcher_source_ids = set()
+        valid_source_ids = source_ids | switcher_source_ids
         for button_name, button in self.joystick.buttons.items():
-            if button.action == ButtonAction.PREVIEW_SOURCE and button.source_id not in source_ids:
+            if button.action == ButtonAction.PREVIEW_SOURCE and button.source_id not in valid_source_ids:
                 raise ValueError(
                     f"Button {button_name} references unknown source_id: {button.source_id}"
                 )
