@@ -21,6 +21,7 @@ _ALLOWED_FORM_BUTTON_ACTIONS = {
     ButtonAction.PRESET_RECALL,
     ButtonAction.NONE,
     ButtonAction.CUT,
+    ButtonAction.AUTO,
     ButtonAction.COPY_PROGRAM_TO_PREVIEW,
 }
 
@@ -321,7 +322,7 @@ class ConfigEditor:
                 entry["source_id"] = str(_button_form_value(data, button_id, "source_id", "")).strip()
             elif action == ButtonAction.PRESET_RECALL.value:
                 entry["preset_number"] = _optional_int(_button_form_value(data, button_id, "preset_number", None), None)
-            # For none/cut/copy_program_to_preview, intentionally omit source_id
+            # For none/cut/auto/copy_program_to_preview, intentionally omit source_id
             # and preset_number so irrelevant values are cleared in the saved
             # runtime structure instead of lingering from a previous mapping.
             buttons[button_id] = entry

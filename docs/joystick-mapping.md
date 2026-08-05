@@ -15,3 +15,8 @@ Manual test tool:
 ```bash
 python scripts/manual_joystick_test.py --debug
 ```
+
+
+## AUTO transition
+
+Any canonical joystick button, including Trigger, may be configured with `action: auto`. The action is dispatched through the generic switcher interface and uses the same PTZ stop-before-transition safety as CUT.

@@ -90,3 +90,10 @@ python -m ptz_joystick_controller.main --config config.example.yaml
 - `osee` / `osee_gostream_duet` — verified Osee GoStream Duet 8 ISO GSP backend, default TCP port 19010
 
 The Osee runtime exposes only logical sources (`Input 1`–`Input 8`, `MP1`, `MP2`, `M/SRC`). Numeric GSP source IDs remain private to the Duet adapter.
+
+## Stage48 — configurable AUTO joystick action
+
+- Adds generic `auto` joystick button action for every canonical button, including Trigger.
+- Web configuration exposes AUTO and ignores/disables source and preset payload fields for this action.
+- AUTO is dispatched through the abstract switcher interface.
+- Active PTZ movement is stopped through the existing `before_auto` safety path before the transition command.

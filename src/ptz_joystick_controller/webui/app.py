@@ -172,6 +172,7 @@ BUTTON_ACTION_OPTIONS = (
     ButtonAction.PRESET_RECALL,
     ButtonAction.NONE,
     ButtonAction.CUT,
+    ButtonAction.AUTO,
     ButtonAction.COPY_PROGRAM_TO_PREVIEW,
 )
 
@@ -232,9 +233,9 @@ def render_config_html(config_editor: ConfigEditor, *, message: str = "") -> str
             "<tr>"
             f"<td><code>{escape(button_id)}</code></td>"
             f"<td>{escape(label)}</td>"
-            f"<td><select name='button_{button_id}_action'>{_button_action_options(action)}</select></td>"
-            f"<td><input name='button_{button_id}_source_id' list='source-options' value='{_html_value(mapping.get('source_id'))}' placeholder='Input 1'></td>"
-            f"<td><input type='number' min='0' max='255' name='button_{button_id}_preset_number' value='{_html_value(mapping.get('preset_number'))}'></td>"
+            f"<td><select class='button-action' data-button-id='{escape(button_id)}' name='button_{button_id}_action'>{_button_action_options(action)}</select></td>"
+            f"<td><input class='button-source-id' data-button-id='{escape(button_id)}' name='button_{button_id}_source_id' list='source-options' value='{_html_value(mapping.get('source_id'))}' placeholder='Input 1'></td>"
+            f"<td><input class='button-preset-number' data-button-id='{escape(button_id)}' type='number' min='0' max='255' name='button_{button_id}_preset_number' value='{_html_value(mapping.get('preset_number'))}'></td>"
             "</tr>"
         )
 
@@ -341,6 +342,17 @@ function updateSwitcherHints() {{
 }}
 if (switcherType) switcherType.addEventListener('change', () => {{ switcherPort.value = ''; updateSwitcherHints(); }});
 updateSwitcherHints();
+function updateButtonPayloadFields(select) {{
+  const buttonId = select.dataset.buttonId;
+  const source = document.querySelector(`.button-source-id[data-button-id="${{buttonId}}"]`);
+  const preset = document.querySelector(`.button-preset-number[data-button-id="${{buttonId}}"]`);
+  if (source) source.disabled = select.value !== 'preview_source';
+  if (preset) preset.disabled = select.value !== 'preset_recall';
+}}
+document.querySelectorAll('.button-action').forEach(select => {{
+  updateButtonPayloadFields(select);
+  select.addEventListener('change', () => updateButtonPayloadFields(select));
+}});
 </script>
 </body>
 </html>"""

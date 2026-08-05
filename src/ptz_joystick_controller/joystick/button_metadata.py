@@ -40,6 +40,9 @@ CONFIGURABLE_BUTTON_ACTIONS: tuple[ButtonAction, ...] = (
     ButtonAction.PREVIEW_SOURCE,
     ButtonAction.PRESET_RECALL,
     ButtonAction.NONE,
+    ButtonAction.CUT,
+    ButtonAction.AUTO,
+    ButtonAction.COPY_PROGRAM_TO_PREVIEW,
 )
 
 FIXED_DEFAULT_BUTTON_ACTIONS: dict[str, ButtonAction] = {
