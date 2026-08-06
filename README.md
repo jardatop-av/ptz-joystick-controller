@@ -1,3 +1,33 @@
+Release notes:
+
+PTZ Joystick Controller v0.9.0
+
+First production-ready public release.
+
+Highlights
+
+• Logitech Extreme 3D Pro support
+• VISCA over IP PTZ control
+• Osee GoStream Duet 8 ISO support
+• vMix support
+• Live Preview → Active PTZ camera routing
+• Dynamic source mapping
+• Web configuration interface
+• Dark/Light theme
+• Network Discovery (vMix, Osee, VISCA)
+• Safe configuration editing
+• Runtime diagnostics
+• Automatic reconnect and recovery
+• Raspberry Pi systemd service
+
+This release has been tested on Raspberry Pi Zero 2 W with Logitech Extreme 3D Pro and Osee GoStream Duet 8 ISO.
+
+================================================================================================================================
+
+
+
+
+
 # PTZ Joystick Controller
 
 ## Stage53 logical source selector
