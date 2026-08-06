@@ -172,11 +172,22 @@ class EditableConfigPatch(BaseModel):
     joystick: EditableJoystickConfig
 
     @model_validator(mode="after")
-    def validate_preset_numbers(self) -> "EditableConfigPatch":
+    def validate_button_payloads(self) -> "EditableConfigPatch":
+        try:
+            available_sources = set(get_source_ids(self.switcher.type))
+        except ValueError as exc:
+            raise ValueError(f"Unsupported switcher type: {self.switcher.type}") from exc
+
         for button_id, mapping in self.joystick.buttons.items():
             if mapping.action == ButtonAction.PRESET_RECALL:
                 if mapping.preset_number is None or not 0 <= mapping.preset_number <= 255:
                     raise ValueError(f"Button {button_id} has invalid preset_number: {mapping.preset_number}")
+            elif mapping.action == ButtonAction.PREVIEW_SOURCE:
+                if mapping.source_id not in available_sources:
+                    raise ValueError(
+                        f"Button {button_id} has unsupported source_id {mapping.source_id!r} "
+                        f"for switcher type {self.switcher.type}"
+                    )
         return self
 
 
@@ -197,6 +208,15 @@ class ConfigEditor:
         registry = ButtonMetadataRegistry(getattr(self.current_config.joystick, "button_labels", {}))
         return {
             "source_options": list(get_source_ids(self.current_config.switcher.type)),
+            "source_options_by_switcher": {
+                switcher_type: list(get_source_ids(switcher_type))
+                for switcher_type in (
+                    "vmix",
+                    "atem_mini_pro",
+                    "atem_tv_studio_pro_4k",
+                    "osee_gostream_duet",
+                )
+            },
             "switcher": {
                 "type": self.current_config.switcher.type,
                 "host": self.current_config.switcher.host,
@@ -440,6 +460,7 @@ class ConfigEditor:
 def _strip_non_editable_metadata(raw_patch: dict[str, Any]) -> dict[str, Any]:
     data = dict(raw_patch)
     data.pop("source_options", None)
+    data.pop("source_options_by_switcher", None)
     joystick = data.get("joystick")
     if isinstance(joystick, dict) and "button_metadata" in joystick:
         joystick = dict(joystick)

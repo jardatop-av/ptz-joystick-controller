@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from html import escape
+import json
 from pathlib import Path
 from typing import Any
 
@@ -318,6 +319,17 @@ def _button_action_options(current: ButtonAction) -> str:
     )
 
 
+def _source_select_options(source_options: list[str], current: object) -> str:
+    current_value = "" if current is None else str(current)
+    options = list(source_options)
+    if current_value and current_value not in options:
+        options.insert(0, current_value)
+    return "".join(
+        f'<option value="{_html_value(source_id)}"{_selected(current_value, source_id)}>{escape(source_id)}</option>'
+        for source_id in options
+    )
+
+
 def render_config_html(config_editor: ConfigEditor, *, message: str = "") -> str:
     payload = config_editor.editable_payload()
     registry = ButtonMetadataRegistry(getattr(config_editor.current_config.joystick, "button_labels", {}))
@@ -328,6 +340,7 @@ def render_config_html(config_editor: ConfigEditor, *, message: str = "") -> str
     cameras = ptz["cameras"]
     buttons = joystick["buttons"]
     source_options = payload.get("source_options", [])
+    source_options_by_switcher = payload.get("source_options_by_switcher", {})
     # Render the raw editor from the currently loaded configuration without
     # applying save-time validation. Generic example configs may intentionally
     # contain disabled/incomplete hardware placeholders; validation runs on
@@ -363,7 +376,7 @@ def render_config_html(config_editor: ConfigEditor, *, message: str = "") -> str
             f"<td><code>{escape(button_id)}</code></td>"
             f"<td>{escape(label)}</td>"
             f"<td><select class='button-action' data-button-id='{escape(button_id)}' name='button_{button_id}_action'>{_button_action_options(action)}</select></td>"
-            f"<td><input class='button-source-id' data-button-id='{escape(button_id)}' name='button_{button_id}_source_id' list='source-options' value='{_html_value(mapping.get('source_id'))}' placeholder='Input 1'></td>"
+            f"<td class='button-source-cell' data-button-id='{escape(button_id)}'{'' if action == ButtonAction.PREVIEW_SOURCE else ' hidden'}><select class='button-source-id' data-button-id='{escape(button_id)}' name='button_{button_id}_source_id'>{_source_select_options(source_options, mapping.get('source_id'))}</select></td>"
             f"<td><input class='button-preset-number' data-button-id='{escape(button_id)}' type='number' min='0' max='255' name='button_{button_id}_preset_number' value='{_html_value(mapping.get('preset_number'))}'></td>"
             "</tr>"
         )
@@ -430,7 +443,6 @@ def render_config_html(config_editor: ConfigEditor, *, message: str = "") -> str
 <div id="message" class="message ok">{escape(status_message)}</div>
 
 <h2>Basic configuration</h2>
-<datalist id="source-options">{''.join(f'<option value="{_html_value(source_id)}"></option>' for source_id in source_options)}</datalist>
 <form method="post" action="/config/basic" id="basic-config-form">
   <div class="action-bar top" data-action-bar="top">
     <button class="primary" type="submit" name="apply" value="0">Save configuration</button>
@@ -517,24 +529,44 @@ def render_config_html(config_editor: ConfigEditor, *, message: str = "") -> str
   <button type="submit" name="apply" value="1">Save and apply Advanced YAML editor</button>
 </form>
 <script>
+const sourceOptionsBySwitcher = {json.dumps(source_options_by_switcher, ensure_ascii=False)};
 const switcherType = document.getElementById('switcher-type');
 const switcherPort = document.getElementById('switcher-port');
 const switcherSources = document.getElementById('switcher-sources');
+function currentSourceOptions() {{
+  return sourceOptionsBySwitcher[switcherType?.value] || [];
+}}
+function refreshSourceSelectors() {{
+  const options = currentSourceOptions();
+  document.querySelectorAll('.button-source-id').forEach(select => {{
+    const previous = select.value;
+    select.replaceChildren(...options.map(sourceId => {{
+      const option = document.createElement('option');
+      option.value = sourceId;
+      option.textContent = sourceId;
+      return option;
+    }}));
+    if (options.includes(previous)) select.value = previous;
+    else if (options.length) select.value = options[0];
+  }});
+}}
 function updateSwitcherHints() {{
   if (!switcherType || !switcherPort || !switcherSources) return;
   const type = switcherType.value;
   if (!switcherPort.value) switcherPort.value = type === 'osee_gostream_duet' ? '19010' : (type === 'vmix' ? '8088' : '');
-  switcherSources.textContent = type === 'osee_gostream_duet'
-    ? 'Logical sources: Input 1–8, MP1, MP2, M/SRC'
-    : (type === 'vmix' ? 'Logical sources: Input 1–100' : 'Logical sources depend on ATEM model');
+  const options = currentSourceOptions();
+  switcherSources.textContent = options.length ? `Logical sources: ${{options.join(', ')}}` : 'No logical sources available';
 }}
-if (switcherType) switcherType.addEventListener('change', () => {{ switcherPort.value = ''; updateSwitcherHints(); }});
+if (switcherType) switcherType.addEventListener('change', () => {{ switcherPort.value = ''; refreshSourceSelectors(); updateSwitcherHints(); updateUnsavedState(); }});
 updateSwitcherHints();
 function updateButtonPayloadFields(select) {{
   const buttonId = select.dataset.buttonId;
   const source = document.querySelector(`.button-source-id[data-button-id="${{buttonId}}"]`);
+  const sourceCell = document.querySelector(`.button-source-cell[data-button-id="${{buttonId}}"]`);
   const preset = document.querySelector(`.button-preset-number[data-button-id="${{buttonId}}"]`);
-  if (source) source.disabled = select.value !== 'preview_source';
+  const showSource = select.value === 'preview_source';
+  if (source) source.disabled = !showSource;
+  if (sourceCell) sourceCell.hidden = !showSource;
   if (preset) preset.disabled = select.value !== 'preset_recall';
 }}
 document.querySelectorAll('.button-action').forEach(select => {{

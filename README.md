@@ -1,5 +1,9 @@
 # PTZ Joystick Controller
 
+## Stage53 logical source selector
+
+The Config button-mapping editor now uses a switcher-aware logical source dropdown for `preview_source` actions. Source IDs remain stored as strings such as `Input 4`; runtime and configuration schemas are unchanged.
+
 First implementation skeleton for config, models, persistent storage, preset manager, event bus and state-machine core.
 
 This stage intentionally does **not** implement:
