@@ -10,3 +10,5 @@ uvicorn>=0.27
 httpx2
 
 python-multipart>=0.0.9
+
+argon2-cffi>=23.1

@@ -179,3 +179,21 @@ Interactive commands are `preview SOURCE_ID`, `cut`, `auto`, `state`, `inputs`, 
 ### Stage55 Fix 2 — continuous ATEM receive loop
 
 The isolated ATEM manual-control client can now run a single dedicated background UDP receiver for the full interactive session. `scripts/manual_atem_control_test.py` starts that receiver immediately after the verified Stage54 handshake/state initialization and before entering `input()`. Physical `PrgI`, `PrvI`, `TrPs`, and `InPr` updates therefore continue to refresh local state while the prompt is idle. Transport ACK packets are dispatched to per-packet waiters by the same receiver; command methods never perform a competing socket read while the background receiver is active. Quit/Ctrl+C closes the socket and stops the receiver cleanly. The `CPvI`, `DCut`, and `DAut` payloads and reliable packet sequencing from Stage55 Fix remain unchanged.
+
+
+## Stage57 – password-protected Web GUI
+
+The production Web UI now requires the single `admin` account. On first run, when
+`config.auth.yaml` does not exist, the browser is redirected to a Set admin password
+page. Passwords are stored only as Argon2id hashes. Sessions use an HttpOnly,
+SameSite=Lax cookie and state-changing management requests use per-session CSRF tokens.
+
+The Config page contains a Security section for changing the admin password. A successful
+password change invalidates all current web sessions. Forgotten passwords can be reset
+locally with:
+
+    python scripts/reset_admin_password.py
+
+`config.auth.yaml` is local-only and ignored by Git. Authentication affects only the web
+management interface; joystick, switcher and PTZ processing continue without a logged-in
+browser.

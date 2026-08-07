@@ -5,3 +5,5 @@ __pycache__/
 data/logs/
 
 config.local.yaml
+
+config.auth.yaml

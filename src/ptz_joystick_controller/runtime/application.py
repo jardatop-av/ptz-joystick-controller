@@ -121,7 +121,7 @@ class RuntimeApplication:
             try:
                 import uvicorn
 
-                app = create_web_app(self.status_provider)
+                app = create_web_app(self.status_provider, auth_enabled=True)
                 uvicorn.run(
                     app,
                     host=self.config.webui.listen_host,

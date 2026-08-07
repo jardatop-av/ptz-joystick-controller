@@ -8,6 +8,7 @@ from typing import Any
 import yaml
 
 from fastapi import FastAPI, Request
+from fastapi.responses import RedirectResponse
 from fastapi.responses import HTMLResponse, JSONResponse
 
 from .config_editor import ConfigEditError, ConfigEditor
@@ -17,6 +18,9 @@ from ..config import ConfigError
 from ..joystick.button_metadata import CANONICAL_BUTTON_IDS, ButtonMetadataRegistry
 from ..models.joystick import ButtonAction
 from .status import RuntimeStatusProvider
+from .auth import ADMIN_USERNAME, AuthError, AuthStore, LoginRateLimiter, SessionManager, validate_password
+import logging
+import secrets
 
 
 THEME_BOOTSTRAP = """<script>
@@ -136,7 +140,8 @@ def render_navigation(active: str) -> str:
     return (
         '<nav class="topnav">'
         f'<div class="nav-links">{"".join(links)}</div>'
-        '<div class="theme-toggle"><span>Theme</span><button type="button" id="theme-toggle">Light theme</button></div>'
+        '<div class="theme-toggle"><span>Theme</span><button type="button" id="theme-toggle">Light theme</button>'
+        '<form method="post" action="/logout" style="display:inline;margin:0"><input type="hidden" name="csrf_token" value="__CSRF_TOKEN__"><button type="submit">Logout</button></form></div>'
         '</nav>'
     )
 
@@ -330,7 +335,7 @@ def _source_select_options(source_options: list[str], current: object) -> str:
     )
 
 
-def render_config_html(config_editor: ConfigEditor, *, message: str = "") -> str:
+def render_config_html(config_editor: ConfigEditor, *, message: str = "", csrf_token: str = "") -> str:
     payload = config_editor.editable_payload()
     registry = ButtonMetadataRegistry(getattr(config_editor.current_config.joystick, "button_labels", {}))
     switcher = payload["switcher"]
@@ -443,7 +448,7 @@ def render_config_html(config_editor: ConfigEditor, *, message: str = "") -> str
 <div id="message" class="message ok">{escape(status_message)}</div>
 
 <h2>Basic configuration</h2>
-<form method="post" action="/config/basic" id="basic-config-form">
+<form method="post" action="/config/basic" id="basic-config-form"><input type="hidden" name="csrf_token" value="{escape(csrf_token)}">
   <div class="action-bar top" data-action-bar="top">
     <button class="primary" type="submit" name="apply" value="0">Save configuration</button>
     <button type="submit" name="apply" value="1">Save and apply configuration</button>
@@ -521,9 +526,22 @@ def render_config_html(config_editor: ConfigEditor, *, message: str = "") -> str
   </div>
 </form>
 
+<h2>Security</h2>
+<fieldset>
+  <legend>Admin password</legend>
+  <form method="post" action="/security/change-password">
+    <input type="hidden" name="csrf_token" value="{escape(csrf_token)}">
+    <label>Current password <input type="password" name="current_password" autocomplete="current-password" required></label>
+    <label>New password <input type="password" name="new_password" autocomplete="new-password" minlength="8" required></label>
+    <label>Confirm new password <input type="password" name="confirm_password" autocomplete="new-password" minlength="8" required></label>
+    <button type="submit">Change password</button>
+  </form>
+  <small>Minimum 8 characters. Changing the password signs out all sessions.</small>
+</fieldset>
+
 <h2>Advanced YAML editor</h2>
 <p>This raw editor is still available for advanced overrides and uses the same validation path.</p>
-<form method="post" action="/config/raw">
+<form method="post" action="/config/raw"><input type="hidden" name="csrf_token" value="{escape(csrf_token)}">
   <textarea name="raw_yaml" spellcheck="false">{escape(raw_yaml)}</textarea>
   <br><button type="submit" name="apply" value="0">Save Advanced YAML editor</button>
   <button type="submit" name="apply" value="1">Save and apply Advanced YAML editor</button>
@@ -692,12 +710,51 @@ if (basicForm) {{
 </html>"""
 
 
+
+LOGGER = logging.getLogger(__name__)
+SESSION_COOKIE = "ptz_session"
+
+
+def _auth_page(*, setup: bool = False, message: str = "") -> str:
+    title = "Set admin password" if setup else "Admin login"
+    fields = (
+        '<label>New password<input type="password" name="new_password" minlength="8" autocomplete="new-password" required></label>'
+        '<label>Confirm password<input type="password" name="confirm_password" minlength="8" autocomplete="new-password" required></label>'
+        if setup else
+        '<label>Username<input value="admin" readonly aria-readonly="true"></label>'
+        '<input type="hidden" name="username" value="admin">'
+        '<label>Password<input type="password" name="password" autocomplete="current-password" required></label>'
+    )
+    action = "/setup" if setup else "/login"
+    button = "Set password" if setup else "Login"
+    error = f'<div class="auth-error" role="alert">{escape(message)}</div>' if message else ""
+    return f"""<!doctype html><html lang="en" data-theme="dark"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{title} - PTZ Joystick Controller</title>{THEME_BOOTSTRAP}<style>
+{COMMON_THEME_CSS}
+body{{margin:0;min-height:100vh;display:grid;place-items:center;padding:1rem}}
+.auth-card{{width:min(100%,420px);background:var(--panel);border:1px solid var(--border);border-radius:.8rem;padding:1.2rem}}
+.auth-card h1{{margin-top:0}} .auth-card label{{display:block;margin:.8rem 0;color:var(--text)}}
+.auth-card input{{display:block;width:100%;padding:.65rem;margin-top:.3rem}}
+.auth-card button{{width:100%;padding:.7rem;font-weight:700;background:var(--accent-strong);color:#fff}}
+.auth-error{{margin:.7rem 0;padding:.6rem;border:1px solid var(--error);border-radius:.45rem;color:var(--error)}}
+.theme-corner{{position:fixed;right:1rem;top:1rem}}
+</style></head><body>
+<div class="theme-corner"><button type="button" id="theme-toggle">Light theme</button></div>
+<main class="auth-card"><h1>{title}</h1><p>Username: <strong>admin</strong></p>{error}
+<form method="post" action="{action}">{fields}<button type="submit">{button}</button></form></main>
+{THEME_SCRIPT}</body></html>"""
+
+
 def create_web_app(
     status_provider: RuntimeStatusProvider,
     *,
     config_example_path: str | Path = "config.example.yaml",
     config_local_path: str | Path = "config.local.yaml",
     discovery_manager: DiscoveryJobManager | None = None,
+    auth_file_path: str | Path = "config.auth.yaml",
+    auth_enabled: bool = False,
+    session_lifetime_seconds: float = 24 * 60 * 60,
 ) -> FastAPI:
     app = FastAPI(title="PTZ Joystick Controller")
     config_editor = ConfigEditor(
@@ -714,9 +771,154 @@ def create_web_app(
     discovery_manager = discovery_manager or DiscoveryJobManager()
     app.state.discovery_manager = discovery_manager
 
+    auth_store = AuthStore(auth_file_path)
+    sessions = SessionManager(session_lifetime_seconds)
+    limiter = LoginRateLimiter()
+    app.state.auth_store = auth_store
+    app.state.sessions = sessions
+    app.state.login_rate_limiter = limiter
+
+    def source_ip(request: Request) -> str:
+        return request.client.host if request.client else "unknown"
+
+    def current_session(request: Request):
+        if not auth_enabled:
+            return None
+        return sessions.get(request.cookies.get(SESSION_COOKIE))
+
+    def csrf_for(request: Request) -> str:
+        session = current_session(request)
+        return session.csrf_token if session else ""
+
+    async def require_csrf(request: Request) -> bool:
+        if not auth_enabled:
+            return True
+        session = current_session(request)
+        if session is None:
+            return False
+        supplied = request.headers.get("x-csrf-token")
+        if supplied is None:
+            content_type = request.headers.get("content-type", "")
+            if "application/x-www-form-urlencoded" in content_type or "multipart/form-data" in content_type:
+                form = await request.form()
+                supplied = str(form.get("csrf_token", ""))
+        return bool(supplied and secrets.compare_digest(supplied, session.csrf_token))
+
+    def render_protected(html: str, request: Request) -> HTMLResponse:
+        return HTMLResponse(html.replace("__CSRF_TOKEN__", escape(csrf_for(request))))
+
+    @app.middleware("http")
+    async def authentication_middleware(request: Request, call_next):
+        if not auth_enabled:
+            return await call_next(request)
+        path = request.url.path
+        public = path in {"/health", "/login", "/setup"}
+        if public:
+            return await call_next(request)
+        if not auth_store.configured:
+            if path.startswith("/api/"):
+                return JSONResponse({"status": "error", "error": "Admin password setup required"}, status_code=401)
+            return RedirectResponse("/setup", status_code=303)
+        if current_session(request) is None:
+            if path.startswith("/api/"):
+                return JSONResponse({"status": "error", "error": "Authentication required"}, status_code=401)
+            return RedirectResponse("/login", status_code=303)
+        return await call_next(request)
+
     @app.get("/health")
     def health() -> dict[str, str]:
         return {"status": "ok"}
+
+    @app.get("/login", response_class=HTMLResponse)
+    def login_page() -> HTMLResponse:
+        if not auth_enabled:
+            return RedirectResponse("/", status_code=303)
+        if not auth_store.configured:
+            return RedirectResponse("/setup", status_code=303)
+        return HTMLResponse(_auth_page())
+
+    @app.post("/login", response_class=HTMLResponse)
+    async def login(request: Request):
+        if not auth_store.configured:
+            return RedirectResponse("/setup", status_code=303)
+        ip = source_ip(request)
+        if limiter.limited(ip):
+            LOGGER.warning("Web login rate limit active source_ip=%s", ip)
+            return HTMLResponse(_auth_page(message="Too many failed attempts. Try again shortly."), status_code=429)
+        form = await request.form()
+        username = str(form.get("username", ""))
+        password = str(form.get("password", ""))
+        if username != ADMIN_USERNAME or not auth_store.verify(password):
+            activated = limiter.failure(ip)
+            LOGGER.warning("Web login failed source_ip=%s", ip)
+            if activated:
+                LOGGER.warning("Web login rate limit activated source_ip=%s", ip)
+            return HTMLResponse(_auth_page(message="Invalid username or password"), status_code=401)
+        limiter.success(ip)
+        session = sessions.create(ip)
+        LOGGER.info("Web login successful source_ip=%s", ip)
+        response = RedirectResponse("/", status_code=303)
+        response.set_cookie(
+            SESSION_COOKIE, session.token, max_age=int(session_lifetime_seconds),
+            httponly=True, samesite="lax", secure=request.url.scheme == "https", path="/",
+        )
+        return response
+
+    @app.get("/setup", response_class=HTMLResponse)
+    def setup_page() -> HTMLResponse:
+        if auth_store.configured:
+            return RedirectResponse("/login", status_code=303)
+        return HTMLResponse(_auth_page(setup=True))
+
+    @app.post("/setup", response_class=HTMLResponse)
+    async def setup_password(request: Request):
+        if auth_store.configured:
+            return RedirectResponse("/login", status_code=303)
+        form = await request.form()
+        new_password = str(form.get("new_password", ""))
+        confirm = str(form.get("confirm_password", ""))
+        if new_password != confirm:
+            return HTMLResponse(_auth_page(setup=True, message="Passwords do not match."), status_code=400)
+        try:
+            auth_store.set_password(new_password)
+        except AuthError as exc:
+            return HTMLResponse(_auth_page(setup=True, message=str(exc)), status_code=400)
+        sessions.invalidate_all()
+        LOGGER.info("Admin password initialized source_ip=%s", source_ip(request))
+        return RedirectResponse("/login", status_code=303)
+
+    @app.post("/logout")
+    async def logout(request: Request):
+        if not await require_csrf(request):
+            return JSONResponse({"status": "error", "error": "Invalid CSRF token"}, status_code=403)
+        token = request.cookies.get(SESSION_COOKIE)
+        sessions.invalidate(token)
+        LOGGER.info("Web logout source_ip=%s", source_ip(request))
+        response = RedirectResponse("/login", status_code=303)
+        response.delete_cookie(SESSION_COOKIE, path="/")
+        return response
+
+    @app.post("/security/change-password", response_class=HTMLResponse)
+    async def change_password(request: Request):
+        if not await require_csrf(request):
+            return JSONResponse({"status": "error", "error": "Invalid CSRF token"}, status_code=403)
+        form = await request.form()
+        current = str(form.get("current_password", ""))
+        new = str(form.get("new_password", ""))
+        confirm = str(form.get("confirm_password", ""))
+        if not auth_store.verify(current):
+            return HTMLResponse(render_config_html(config_editor, message="Current password is incorrect.", csrf_token=csrf_for(request)).replace("__CSRF_TOKEN__", escape(csrf_for(request))), status_code=400)
+        if new != confirm:
+            return HTMLResponse(render_config_html(config_editor, message="New passwords do not match.", csrf_token=csrf_for(request)).replace("__CSRF_TOKEN__", escape(csrf_for(request))), status_code=400)
+        try:
+            auth_store.set_password(new)
+        except AuthError as exc:
+            return HTMLResponse(render_config_html(config_editor, message=str(exc), csrf_token=csrf_for(request)).replace("__CSRF_TOKEN__", escape(csrf_for(request))), status_code=400)
+        sessions.invalidate_all()
+        LOGGER.info("Admin password changed source_ip=%s", source_ip(request))
+        response = RedirectResponse("/login", status_code=303)
+        response.delete_cookie(SESSION_COOKIE, path="/")
+        return response
 
     @app.get("/api/status")
     def api_status() -> dict[str, Any]:
@@ -731,7 +933,9 @@ def create_web_app(
         return {"editable_config": config_editor.editable_payload()}
 
     @app.post("/api/config/apply")
-    def api_config_apply() -> JSONResponse:
+    async def api_config_apply(request: Request) -> JSONResponse:
+        if not await require_csrf(request):
+            return JSONResponse({"status": "error", "error": "Invalid CSRF token"}, status_code=403)
         try:
             result = config_applier.apply_from_disk()
             config_editor.current_config = status_provider.state.config
@@ -769,11 +973,13 @@ def create_web_app(
         return JSONResponse(job.payload()) if job is not None else JSONResponse({"status": "error", "error": "Discovery job not found"}, status_code=404)
 
     @app.get("/config", response_class=HTMLResponse)
-    def config_page() -> HTMLResponse:
-        return HTMLResponse(render_config_html(config_editor))
+    def config_page(request: Request) -> HTMLResponse:
+        return HTMLResponse(render_config_html(config_editor, csrf_token=csrf_for(request)).replace("__CSRF_TOKEN__", escape(csrf_for(request))))
 
     @app.post("/config/basic")
     async def save_basic_config(request: Request):
+        if not await require_csrf(request):
+            return JSONResponse({"status": "error", "error": "Invalid CSRF token"}, status_code=403)
         try:
             content_type = request.headers.get("content-type", "")
             if content_type.startswith("application/json"):
@@ -787,15 +993,17 @@ def create_web_app(
             if str(form.get("apply", "0")) == "1":
                 apply_result = config_applier.apply_from_disk()
                 config_editor.current_config = status_provider.state.config
-                return HTMLResponse(render_config_html(config_editor, message=str(apply_result["message"])))
-            return HTMLResponse(render_config_html(config_editor, message=result["message"]))
+                return HTMLResponse(render_config_html(config_editor, message=str(apply_result["message"]), csrf_token=csrf_for(request)).replace("__CSRF_TOKEN__", escape(csrf_for(request))))
+            return HTMLResponse(render_config_html(config_editor, message=result["message"], csrf_token=csrf_for(request)).replace("__CSRF_TOKEN__", escape(csrf_for(request))))
         except (ConfigEditError, ConfigError) as exc:
             if request.headers.get("content-type", "").startswith("application/json"):
                 return JSONResponse({"status": "error", "error": str(exc), "message": str(exc)}, status_code=400)
-            return HTMLResponse(render_config_html(config_editor, message=str(exc)), status_code=400)
+            return HTMLResponse(render_config_html(config_editor, message=str(exc), csrf_token=csrf_for(request)).replace("__CSRF_TOKEN__", escape(csrf_for(request))), status_code=400)
 
     @app.post("/config/raw")
     async def save_raw_config(request: Request):
+        if not await require_csrf(request):
+            return JSONResponse({"status": "error", "error": "Invalid CSRF token"}, status_code=403)
         try:
             content_type = request.headers.get("content-type", "")
             if content_type.startswith("application/json"):
@@ -813,15 +1021,17 @@ def create_web_app(
             if str(form.get("apply", "0")) == "1":
                 apply_result = config_applier.apply_from_disk()
                 config_editor.current_config = status_provider.state.config
-                return HTMLResponse(render_config_html(config_editor, message=str(apply_result["message"])))
-            return HTMLResponse(render_config_html(config_editor, message=result["message"]))
+                return HTMLResponse(render_config_html(config_editor, message=str(apply_result["message"]), csrf_token=csrf_for(request)).replace("__CSRF_TOKEN__", escape(csrf_for(request))))
+            return HTMLResponse(render_config_html(config_editor, message=result["message"], csrf_token=csrf_for(request)).replace("__CSRF_TOKEN__", escape(csrf_for(request))))
         except (ConfigEditError, ConfigError, yaml.YAMLError) as exc:
             if request.headers.get("content-type", "").startswith("application/json"):
                 return JSONResponse({"status": "error", "error": str(exc), "message": str(exc)}, status_code=400)
-            return HTMLResponse(render_config_html(config_editor, message=str(exc)), status_code=400)
+            return HTMLResponse(render_config_html(config_editor, message=str(exc), csrf_token=csrf_for(request)).replace("__CSRF_TOKEN__", escape(csrf_for(request))), status_code=400)
 
     @app.post("/config")
     async def save_config(request: Request) -> JSONResponse:
+        if not await require_csrf(request):
+            return JSONResponse({"status": "error", "error": "Invalid CSRF token"}, status_code=403)
         try:
             payload = await request.json()
             if not isinstance(payload, dict):
@@ -832,11 +1042,11 @@ def create_web_app(
             return JSONResponse({"status": "error", "error": str(exc), "message": str(exc)}, status_code=400)
 
     @app.get("/diagnostics", response_class=HTMLResponse)
-    def diagnostics_page() -> HTMLResponse:
-        return HTMLResponse(DIAGNOSTICS_HTML)
+    def diagnostics_page(request: Request) -> HTMLResponse:
+        return render_protected(DIAGNOSTICS_HTML, request)
 
     @app.get("/", response_class=HTMLResponse)
-    def dashboard() -> HTMLResponse:
-        return HTMLResponse(DASHBOARD_HTML)
+    def dashboard(request: Request) -> HTMLResponse:
+        return render_protected(DASHBOARD_HTML, request)
 
     return app
