@@ -55,3 +55,26 @@ __all__ += [
     "OseeDuetSourceRef",
     "OseeDuetState",
 ]
+
+# Stage55: isolated ATEM Television Studio 4K8 manual Preview/CUT/AUTO probe.
+from .atem_control_probe import (
+    ATEM_TELEVISION_STUDIO_4K8_PRODUCT_NAME,
+    AtemCommandTimeout,
+    AtemControlCommand,
+    AtemControlError,
+    AtemManualControlClient,
+    auto_command,
+    cut_command,
+    preview_input_command,
+)
+
+__all__ += [
+    "ATEM_TELEVISION_STUDIO_4K8_PRODUCT_NAME",
+    "AtemCommandTimeout",
+    "AtemControlCommand",
+    "AtemControlError",
+    "AtemManualControlClient",
+    "auto_command",
+    "cut_command",
+    "preview_input_command",
+]

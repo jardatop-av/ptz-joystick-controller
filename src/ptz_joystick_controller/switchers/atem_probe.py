@@ -67,6 +67,9 @@ class AtemReadOnlyState:
     preview_source_id: int | None = None
     inputs: dict[int, AtemInputInfo] = field(default_factory=dict)
     init_complete: bool = False
+    transition_in_progress: bool = False
+    transition_frames_remaining: int | None = None
+    transition_position: int | None = None
 
     def source_label(self, source_id: int | None) -> str:
         if source_id is None:
@@ -228,6 +231,16 @@ def apply_state_command(state: AtemReadOnlyState, command: AtemCommand) -> bool:
             long_name=_decode_c_string(payload[2:22]),
             short_name=_decode_c_string(payload[22:26]),
         )
+        return True
+    if command.name == "TrPs":
+        if len(payload) < 6:
+            raise AtemProtocolError("TrPs payload too short")
+        me_index = payload[0]
+        if me_index != 0:
+            return False
+        state.transition_in_progress = bool(payload[1])
+        state.transition_frames_remaining = payload[2]
+        state.transition_position = int.from_bytes(payload[4:6], "big")
         return True
     if command.name == "InCm":
         state.init_complete = True

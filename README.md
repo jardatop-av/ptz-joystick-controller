@@ -1,33 +1,3 @@
-Release notes:
-
-PTZ Joystick Controller v0.9.0
-
-First production-ready public release.
-
-Highlights
-
-• Logitech Extreme 3D Pro support
-• VISCA over IP PTZ control
-• Osee GoStream Duet 8 ISO support
-• vMix support
-• Live Preview → Active PTZ camera routing
-• Dynamic source mapping
-• Web configuration interface
-• Dark/Light theme
-• Network Discovery (vMix, Osee, VISCA)
-• Safe configuration editing
-• Runtime diagnostics
-• Automatic reconnect and recovery
-• Raspberry Pi systemd service
-
-This release has been tested on Raspberry Pi Zero 2 W with Logitech Extreme 3D Pro and Osee GoStream Duet 8 ISO.
-
-================================================================================================================================
-
-
-
-
-
 # PTZ Joystick Controller
 
 ## Stage53 logical source selector
@@ -185,3 +155,18 @@ Example:
 ```bash
 python scripts/manual_atem_probe.py --host 192.168.1.184 --port 9910 --duration 20 --debug
 ```
+
+
+## Stage55 — ATEM Television Studio 4K8 manual control probe
+
+Stage55 extends the verified Stage54 UDP session with an isolated manual-control layer for exactly three M/E 1 operations: Preview selection (`CPvI`), native CUT (`DCut`), and native AUTO (`DAut`). It is **not** connected to `RuntimeApplication`, joystick control, PTZ routing, web UI, configuration, or systemd. Command success is confirmed from normal `PrvI`/`PrgI` feedback rather than UDP send success. `TrPs` is parsed for transition diagnostics.
+
+Target product name: **ATEM Television Studio 4K8**.
+
+Manual test:
+
+```bash
+python scripts/manual_atem_control_test.py --host 192.168.1.184 --port 9910 --timeout 2 --debug
+```
+
+Interactive commands are `preview SOURCE_ID`, `cut`, `auto`, `state`, `inputs`, and `quit`.
