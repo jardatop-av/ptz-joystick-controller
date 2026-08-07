@@ -8,6 +8,8 @@ from ptz_joystick_controller.switchers.atem_control_probe import (
     ATEM_ME1_INDEX,
     ATEM_TELEVISION_STUDIO_4K8_PRODUCT_NAME,
     AtemCommandTimeout,
+    AtemStateFeedbackTimeout,
+    AtemTransportAckTimeout,
     AtemManualControlClient,
     auto_command,
     cut_command,
@@ -15,6 +17,7 @@ from ptz_joystick_controller.switchers.atem_control_probe import (
     preview_input_command,
 )
 from ptz_joystick_controller.switchers.atem_probe import (
+    ATEM_FLAG_ACK,
     ATEM_FLAG_RELIABLE,
     ATEM_FLAG_SYN,
     ATEM_INITIAL_SESSION_ID,
@@ -81,6 +84,16 @@ def handshake_reply() -> bytes:
         session_id=ATEM_INITIAL_SESSION_ID,
         packet_id=1,
         payload=b"\x02\x00\x00\x00\x00\x00\x00\x00",
+    )
+
+
+
+
+def ack_datagram(ack_id: int, *, session_id: int = 0x800F) -> bytes:
+    return encode_atem_packet(
+        flags=ATEM_FLAG_ACK,
+        session_id=session_id,
+        ack_id=ack_id,
     )
 
 
@@ -169,6 +182,7 @@ def test_set_preview_sends_cpvi_and_waits_for_prvi_feedback() -> None:
     fake = FakeUdpSocket([
         handshake_reply(),
         initial_state_datagram(),
+        ack_datagram(1),
         state_datagram(cmd("PrvI", b"\x00\x00\x00\x05\x00\x00\x00\x00"), packet_id=3),
     ])
     client = AtemManualControlClient("192.168.1.184", socket_factory=lambda: fake)
@@ -193,6 +207,7 @@ def test_cut_relies_on_received_program_preview_feedback() -> None:
     fake = FakeUdpSocket([
         handshake_reply(),
         initial_state_datagram(program=1, preview=2),
+        ack_datagram(1),
         state_datagram(
             cmd("PrgI", b"\x00\x00\x00\x02"),
             cmd("PrvI", b"\x00\x00\x00\x01\x00\x00\x00\x00"),
@@ -211,6 +226,7 @@ def test_auto_relies_on_received_feedback() -> None:
     fake = FakeUdpSocket([
         handshake_reply(),
         initial_state_datagram(program=1, preview=2),
+        ack_datagram(1),
         state_datagram(cmd("TrPs", b"\x00\x01\x0a\x00\x13\x88\x00"), packet_id=3),
         state_datagram(
             cmd("TrPs", b"\x00\x00\x00\x00\x00\x00\x00"),
@@ -229,10 +245,10 @@ def test_auto_relies_on_received_feedback() -> None:
 
 
 def test_timeout_after_command_is_safe_and_keeps_session_alive() -> None:
-    fake = FakeUdpSocket([handshake_reply(), initial_state_datagram(), socket.timeout(), socket.timeout()])
+    fake = FakeUdpSocket([handshake_reply(), initial_state_datagram(), ack_datagram(1), socket.timeout(), socket.timeout()])
     client = AtemManualControlClient("192.168.1.184", timeout=0.01, socket_factory=lambda: fake)
     client.connect()
-    with pytest.raises(AtemCommandTimeout):
+    with pytest.raises(AtemStateFeedbackTimeout):
         client.set_preview(5, feedback_timeout=0.01)
     assert client.connected is True
     assert client.confirmed is True
@@ -256,3 +272,59 @@ def test_clean_disconnect_after_control_session() -> None:
     client.disconnect()
     assert fake.closed is True
     assert client.connected is False
+
+
+def test_outbound_packet_ids_are_monotonic_within_session() -> None:
+    fake = FakeUdpSocket([
+        handshake_reply(),
+        initial_state_datagram(),
+        ack_datagram(1),
+        state_datagram(cmd("PrvI", b"\x00\x00\x00\x03\x00\x00\x00\x00"), packet_id=3),
+        ack_datagram(2),
+        state_datagram(cmd("PrvI", b"\x00\x00\x00\x04\x00\x00\x00\x00"), packet_id=4),
+    ])
+    client = AtemManualControlClient("192.168.1.184", socket_factory=lambda: fake)
+    client.connect()
+    client.set_preview(3)
+    client.set_preview(4)
+    command_packets = [decode_atem_packet(raw) for raw in fake.sent if decode_atem_packet(raw).flags & ATEM_FLAG_RELIABLE]
+    assert [packet.packet_id for packet in command_packets] == [1, 2]
+
+
+def test_reconnect_resets_session_local_sequence() -> None:
+    first = FakeUdpSocket([handshake_reply(), initial_state_datagram(), ack_datagram(1), state_datagram(cmd("PrvI", b"\x00\x00\x00\x03\x00\x00\x00\x00"), packet_id=3)])
+    second = FakeUdpSocket([handshake_reply(), initial_state_datagram(), ack_datagram(1), state_datagram(cmd("PrvI", b"\x00\x00\x00\x03\x00\x00\x00\x00"), packet_id=3)])
+    sockets = iter([first, second])
+    client = AtemManualControlClient("192.168.1.184", socket_factory=lambda: next(sockets))
+    client.connect(); client.set_preview(3)
+    client.connect(); client.set_preview(3)
+    first_ids = [decode_atem_packet(raw).packet_id for raw in first.sent if decode_atem_packet(raw).flags & ATEM_FLAG_RELIABLE]
+    second_ids = [decode_atem_packet(raw).packet_id for raw in second.sent if decode_atem_packet(raw).flags & ATEM_FLAG_RELIABLE]
+    assert first_ids == [1]
+    assert second_ids == [1]
+
+
+def test_switcher_ack_packet_is_correlated_and_not_parsed_as_state() -> None:
+    fake = FakeUdpSocket([handshake_reply(), initial_state_datagram(), ack_datagram(1)])
+    client = AtemManualControlClient("192.168.1.184", socket_factory=lambda: fake)
+    client.connect()
+    packet_id = client._send_control(preview_input_command(3))
+    commands = client.receive_once()
+    assert commands == ()
+    assert client.is_local_packet_acked(packet_id) is True
+    assert client.consume_local_packet_ack(packet_id) is True
+    assert client.is_local_packet_acked(packet_id) is False
+
+
+def test_transport_ack_timeout_is_distinct_from_state_feedback_timeout() -> None:
+    fake = FakeUdpSocket([handshake_reply(), initial_state_datagram(), socket.timeout(), socket.timeout()])
+    client = AtemManualControlClient("192.168.1.184", timeout=0.01, socket_factory=lambda: fake)
+    client.connect()
+    with pytest.raises(AtemTransportAckTimeout):
+        client.set_preview(3, feedback_timeout=0.01)
+    assert client.last_command_transport_acked is False
+
+
+def test_cpvi_payload_regression_source_1_and_2() -> None:
+    assert preview_input_command(1).payload == bytes.fromhex("00 00 00 01")
+    assert preview_input_command(2).payload == bytes.fromhex("00 00 00 02")

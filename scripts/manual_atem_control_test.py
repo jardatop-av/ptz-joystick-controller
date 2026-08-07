@@ -17,6 +17,8 @@ from ptz_joystick_controller.switchers.atem_control_probe import (  # noqa: E402
     AtemCommandTimeout,
     AtemControlError,
     AtemManualControlClient,
+    AtemStateFeedbackTimeout,
+    AtemTransportAckTimeout,
 )
 from ptz_joystick_controller.switchers.atem_probe import ATEM_DEFAULT_PORT, AtemProbeError  # noqa: E402
 
@@ -90,23 +92,33 @@ def main() -> int:
                         print("Usage: preview SOURCE_ID")
                         continue
                     source_id = int(parts[1], 10)
+                    print(f"Sending CPvI packet_id={client.next_local_packet_id_value}")
                     client.set_preview(source_id)
-                    print(f"Preview changed: {source_id} -> {client.state.source_label(source_id)}")
+                    print(f"Transport ACK received packet_id={client.last_command_packet_id}")
+                    print(f"PrvI confirmed: {source_id} -> {client.state.source_label(source_id)}")
                     continue
                 if command == "cut":
+                    print(f"Sending DCut packet_id={client.next_local_packet_id_value}")
                     client.cut()
-                    print("CUT confirmed")
+                    print(f"Transport ACK received packet_id={client.last_command_packet_id}")
+                    print("PrgI/PrvI confirmed: CUT completed")
                     print_state(client)
                     continue
                 if command == "auto":
+                    print(f"Sending DAut packet_id={client.next_local_packet_id_value}")
                     print("AUTO started")
                     client.auto()
-                    print("AUTO completed")
+                    print(f"Transport ACK received packet_id={client.last_command_packet_id}")
+                    print("PrgI/PrvI confirmed: AUTO completed")
                     print_state(client)
                     continue
                 print("Unknown command. Use: preview SOURCE_ID | cut | auto | state | inputs | quit")
             except ValueError as exc:
                 print(f"Invalid command: {exc}")
+            except AtemTransportAckTimeout as exc:
+                print(f"Transport ACK timeout: {exc}")
+            except AtemStateFeedbackTimeout as exc:
+                print(f"State feedback timeout: {exc}")
             except AtemCommandTimeout as exc:
                 print(f"Command timeout: {exc}")
             except AtemControlError as exc:

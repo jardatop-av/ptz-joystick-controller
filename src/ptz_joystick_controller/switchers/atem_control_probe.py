@@ -22,7 +22,15 @@ class AtemControlError(AtemProbeError):
 
 
 class AtemCommandTimeout(AtemTimeoutError, AtemControlError):
-    """A write command was sent, but matching switcher feedback did not arrive."""
+    """Base timeout for a Stage55 control command."""
+
+
+class AtemTransportAckTimeout(AtemCommandTimeout):
+    """The switcher did not ACK the reliable UDP command packet."""
+
+
+class AtemStateFeedbackTimeout(AtemCommandTimeout):
+    """Transport ACK arrived, but matching PrvI/PrgI feedback did not."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -84,19 +92,17 @@ class AtemManualControlClient(AtemReadOnlyProbeClient):
 
     def __init__(self, *args, **kwargs) -> None:  # type: ignore[no-untyped-def]
         super().__init__(*args, **kwargs)
-        self._local_packet_id = 1
-
-    def connect(self) -> AtemReadOnlyState:
-        state = super().connect()
-        self._local_packet_id = 1
-        return state
+        self.last_command_packet_id: int | None = None
+        self.last_command_name: str | None = None
+        self.last_command_transport_acked = False
 
     def set_preview(self, source_id: int, *, feedback_timeout: float | None = None) -> AtemReadOnlyState:
         _validate_source_id(source_id)
         if self.state.inputs and source_id not in self.state.inputs:
             raise ValueError(f"ATEM source_id {source_id} is not present in the current input table")
 
-        self._send_control(preview_input_command(source_id))
+        packet_id = self._send_control(preview_input_command(source_id))
+        self._wait_for_transport_ack(packet_id, timeout=feedback_timeout)
         self._wait_for(
             lambda state: state.preview_source_id == source_id,
             timeout=feedback_timeout,
@@ -111,7 +117,8 @@ class AtemManualControlClient(AtemReadOnlyProbeClient):
 
     def cut(self, *, feedback_timeout: float | None = None) -> AtemReadOnlyState:
         before = (self.state.program_source_id, self.state.preview_source_id)
-        self._send_control(cut_command())
+        packet_id = self._send_control(cut_command())
+        self._wait_for_transport_ack(packet_id, timeout=feedback_timeout)
 
         def cut_confirmed(state: AtemReadOnlyState) -> bool:
             if before[0] is not None and before[1] is not None:
@@ -127,7 +134,8 @@ class AtemManualControlClient(AtemReadOnlyProbeClient):
 
     def auto(self, *, feedback_timeout: float | None = None) -> AtemReadOnlyState:
         before = (self.state.program_source_id, self.state.preview_source_id)
-        self._send_control(auto_command())
+        packet_id = self._send_control(auto_command())
+        self._wait_for_transport_ack(packet_id, timeout=feedback_timeout)
 
         def confirmed(state: AtemReadOnlyState) -> bool:
             if before[0] is not None and before[1] is not None:
@@ -141,18 +149,43 @@ class AtemManualControlClient(AtemReadOnlyProbeClient):
         )
         return self.state
 
-    def _send_control(self, command: AtemControlCommand) -> None:
+    def _send_control(self, command: AtemControlCommand) -> int:
         if not self.connected or not self.confirmed:
             raise AtemControlError("ATEM control client is not connected to a confirmed session")
-        packet_id = self._local_packet_id
-        self._local_packet_id = 1 if packet_id >= 0xFFFF else packet_id + 1
+        packet_id = self.next_local_packet_id()
+        self.last_command_packet_id = packet_id
+        self.last_command_name = command.name
+        self.last_command_transport_acked = False
         packet = encode_atem_packet(
             flags=ATEM_FLAG_RELIABLE,
             session_id=self.session_id,
             packet_id=packet_id,
             payload=command.encode_chunk(),
         )
+        self._logger.info("ATEM COMMAND SEND packet_id=%d command=%s", packet_id, command.name)
         self._send(packet, command.name)
+        return packet_id
+
+    def _wait_for_transport_ack(self, packet_id: int, *, timeout: float | None) -> None:
+        wait_timeout = self.timeout if timeout is None else timeout
+        if wait_timeout <= 0:
+            raise ValueError("transport ACK timeout must be positive")
+        if self.consume_local_packet_ack(packet_id):
+            self.last_command_transport_acked = True
+            self._logger.info("ATEM COMMAND ACK packet_id=%d", packet_id)
+            return
+        deadline = time.monotonic() + wait_timeout
+        while time.monotonic() < deadline:
+            try:
+                self.receive_once()
+            except AtemTimeoutError:
+                continue
+            if self.consume_local_packet_ack(packet_id):
+                self.last_command_transport_acked = True
+                self._logger.info("ATEM COMMAND ACK packet_id=%d", packet_id)
+                return
+        self._logger.warning("ATEM COMMAND ACK TIMEOUT packet_id=%d", packet_id)
+        raise AtemTransportAckTimeout(f"Timed out waiting for transport ACK for packet_id={packet_id}")
 
     def _wait_for(
         self,
@@ -164,6 +197,8 @@ class AtemManualControlClient(AtemReadOnlyProbeClient):
         wait_timeout = self.timeout if timeout is None else timeout
         if wait_timeout <= 0:
             raise ValueError("feedback timeout must be positive")
+        if predicate(self.state):
+            return
         deadline = time.monotonic() + wait_timeout
         while time.monotonic() < deadline:
             try:
@@ -172,7 +207,7 @@ class AtemManualControlClient(AtemReadOnlyProbeClient):
                 continue
             if predicate(self.state):
                 return
-        raise AtemCommandTimeout(f"Timed out waiting for {description}")
+        raise AtemStateFeedbackTimeout(f"Timed out waiting for {description}")
 
 
 def is_stage55_control_command(command: AtemControlCommand) -> bool:

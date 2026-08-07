@@ -296,6 +296,11 @@ class AtemReadOnlyProbeClient:
         self.session_id = ATEM_INITIAL_SESSION_ID
         self.state = AtemReadOnlyState()
         self.confirmed = False
+        # Client-local reliable sequence state belongs to the UDP session itself.
+        # SYN and ACK packets do not consume a local packet id.
+        self._local_packet_id = 0
+        self._acked_local_packet_ids: set[int] = set()
+        self._last_remote_packet_id = 0
 
     @property
     def connected(self) -> bool:
@@ -303,6 +308,11 @@ class AtemReadOnlyProbeClient:
 
     def connect(self) -> AtemReadOnlyState:
         self.disconnect()
+        self.session_id = ATEM_INITIAL_SESSION_ID
+        self.state = AtemReadOnlyState()
+        self._local_packet_id = 0
+        self._acked_local_packet_ids.clear()
+        self._last_remote_packet_id = 0
         sock = self._socket_factory()
         sock.settimeout(self.timeout)
         sock.connect((self.host, self.port))
@@ -326,17 +336,7 @@ class AtemReadOnlyProbeClient:
                     packet = self._recv_packet()
                 except AtemTimeoutError:
                     break
-                if packet.session_id:
-                    self.session_id = packet.session_id
-                if packet.flags & ATEM_FLAG_RELIABLE:
-                    self._send(encode_ack(self.session_id, packet.packet_id), "ACK")
-                if not packet.payload:
-                    continue
-                try:
-                    commands = parse_atem_commands(packet.payload)
-                except AtemProtocolError as exc:
-                    self._logger.debug("Ignoring non-state ATEM payload during initialization: %s", exc)
-                    continue
+                commands = self._process_session_packet(packet, context="initialization")
                 for command in commands:
                     try:
                         changed = apply_state_command(self.state, command)
@@ -358,17 +358,7 @@ class AtemReadOnlyProbeClient:
         if self._socket is None:
             raise AtemProbeError("ATEM probe is not connected")
         packet = self._recv_packet()
-        if packet.session_id:
-            self.session_id = packet.session_id
-        if packet.flags & ATEM_FLAG_RELIABLE:
-            self._send(encode_ack(self.session_id, packet.packet_id), "ACK")
-        if not packet.payload:
-            return ()
-        try:
-            commands = parse_atem_commands(packet.payload)
-        except AtemProtocolError as exc:
-            self._logger.debug("Ignoring malformed ATEM state packet: %s", exc)
-            return ()
+        commands = self._process_session_packet(packet, context="state")
         accepted: list[AtemCommand] = []
         for command in commands:
             try:
@@ -378,6 +368,53 @@ class AtemReadOnlyProbeClient:
                 continue
             accepted.append(command)
         return tuple(accepted)
+
+    def _process_session_packet(
+        self,
+        packet: AtemPacket,
+        *,
+        context: str,
+    ) -> tuple[AtemCommand, ...]:
+        """Maintain reliable-session state and return any higher-level commands.
+
+        ACK-only packets are consumed here and are never handed to the state
+        command parser. Reliable switcher packets continue to receive the same
+        mandatory ACK handling verified by Stage54.
+        """
+        if packet.session_id:
+            self.session_id = packet.session_id
+        if packet.flags & ATEM_FLAG_ACK and packet.ack_id:
+            self._acked_local_packet_ids.add(packet.ack_id)
+            self._logger.debug("ATEM transport ACK received packet_id=%d", packet.ack_id)
+        if packet.flags & ATEM_FLAG_RELIABLE:
+            self._last_remote_packet_id = packet.packet_id
+            self._send(encode_ack(self.session_id, packet.packet_id), "ACK")
+        if not packet.payload:
+            return ()
+        try:
+            return parse_atem_commands(packet.payload)
+        except AtemProtocolError as exc:
+            self._logger.debug("Ignoring malformed ATEM %s packet: %s", context, exc)
+            return ()
+
+    @property
+    def next_local_packet_id_value(self) -> int:
+        """Return the next reliable client packet id without consuming it."""
+        return 1 if self._local_packet_id >= 0xFFFF else self._local_packet_id + 1
+
+    def next_local_packet_id(self) -> int:
+        """Allocate the next reliable client packet id for this active session."""
+        self._local_packet_id = self.next_local_packet_id_value
+        return self._local_packet_id
+
+    def is_local_packet_acked(self, packet_id: int) -> bool:
+        return packet_id in self._acked_local_packet_ids
+
+    def consume_local_packet_ack(self, packet_id: int) -> bool:
+        if packet_id not in self._acked_local_packet_ids:
+            return False
+        self._acked_local_packet_ids.remove(packet_id)
+        return True
 
     def disconnect(self) -> None:
         if self._socket is not None:

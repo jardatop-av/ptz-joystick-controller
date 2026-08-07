@@ -161,6 +161,8 @@ python scripts/manual_atem_probe.py --host 192.168.1.184 --port 9910 --duration 
 
 Stage55 extends the verified Stage54 UDP session with an isolated manual-control layer for exactly three M/E 1 operations: Preview selection (`CPvI`), native CUT (`DCut`), and native AUTO (`DAut`). It is **not** connected to `RuntimeApplication`, joystick control, PTZ routing, web UI, configuration, or systemd. Command success is confirmed from normal `PrvI`/`PrgI` feedback rather than UDP send success. `TrPs` is parsed for transition diagnostics.
 
+Stage55 Fix moves the client-local reliable packet sequence into the shared ATEM UDP session instead of resetting a second counter in the manual-control subclass. The first reliable command in a fresh session uses packet ID 1, subsequent commands increment monotonically, and reconnect starts a fresh sequence. Switcher ACK-only packets are correlated through the ATEM header `ack_id` and are not passed to the state command parser. Manual control diagnostics now distinguish transport ACK timeout from `PrvI`/`PrgI` state-feedback timeout. The verified `CPvI`, `DCut`, and `DAut` payload layouts are unchanged.
+
 Target product name: **ATEM Television Studio 4K8**.
 
 Manual test:
