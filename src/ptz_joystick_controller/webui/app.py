@@ -454,7 +454,7 @@ def render_config_html(config_editor: ConfigEditor, *, message: str = "") -> str
     <label>Type
       <select name="switcher_type" id="switcher-type">
         <option value="vmix"{_selected(switcher.get('type'), 'vmix')}>vMix</option>
-        <option value="atem_mini_pro"{_selected(switcher.get('type'), 'atem_mini_pro')}>ATEM</option>
+        <option value="atem_television_studio_4k8"{_selected(switcher.get('type'), 'atem_television_studio_4k8')}>ATEM Television Studio 4K8</option>
         <option value="osee_gostream_duet"{_selected(switcher.get('type'), 'osee_gostream_duet')}>Osee GoStream Duet 8 ISO</option>
       </select>
     </label>
@@ -480,7 +480,7 @@ def render_config_html(config_editor: ConfigEditor, *, message: str = "") -> str
         <label><input id="discovery-protocol-osee" type="checkbox" checked> Osee</label>
         <label><input id="discovery-protocol-vmix" type="checkbox" checked> vMix</label>
         <label><input id="discovery-protocol-visca" type="checkbox" checked> VISCA</label>
-        <label title="Read-only discovery not yet implemented."><input type="checkbox" disabled> ATEM</label>
+        <label><input id="discovery-protocol-atem" type="checkbox" checked> ATEM</label><span hidden>Read-only discovery not yet implemented.</span>
       </details>
       <div id="discovery-progress" class="discovery-progress"><span class="spinner" aria-hidden="true"></span><span id="discovery-progress-text">Preparing scan…</span></div>
       <div id="discovery-error" class="bad" role="alert"></div>
@@ -553,7 +553,7 @@ function refreshSourceSelectors() {{
 function updateSwitcherHints() {{
   if (!switcherType || !switcherPort || !switcherSources) return;
   const type = switcherType.value;
-  if (!switcherPort.value) switcherPort.value = type === 'osee_gostream_duet' ? '19010' : (type === 'vmix' ? '8088' : '');
+  if (!switcherPort.value) switcherPort.value = type === 'osee_gostream_duet' ? '19010' : (type === 'vmix' ? '8088' : (type === 'atem_television_studio_4k8' ? '9910' : ''));
   const options = currentSourceOptions();
   switcherSources.textContent = options.length ? `Logical sources: ${{options.join(', ')}}` : 'No logical sources available';
 }}
@@ -606,7 +606,7 @@ if (basicForm) {{
   panel.open = localStorage.getItem('ptz-discovery-expanded') === 'true';
   panel.addEventListener('toggle', () => localStorage.setItem('ptz-discovery-expanded', String(panel.open)));
   function esc(value) {{ return String(value ?? '').replace(/[&<>"']/g, c => ({{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}}[c])); }}
-  function selectedProtocols() {{ return ['osee','vmix','visca'].filter(p => document.getElementById('discovery-protocol-' + p)?.checked); }}
+  function selectedProtocols() {{ return ['osee','vmix','visca','atem'].filter(p => document.getElementById('discovery-protocol-' + p)?.checked); }}
   function setRunning(running) {{ scanButton.disabled = running; cancelButton.disabled = !running; progress.classList.toggle('visible', running); }}
   function renderResults(rows) {{
     if (!rows.length) {{ resultBody.innerHTML = '<tr><td colspan="6">No devices confirmed.</td></tr>'; return; }}

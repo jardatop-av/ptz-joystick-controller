@@ -123,7 +123,9 @@ def _apply_osee_duet_defaults(data: dict[str, Any], *, fill_unmapped_inputs: boo
     if not isinstance(switcher, dict):
         return data
     switcher_type = str(switcher.get("type", "")).strip().lower()
-    if switcher_type not in {"osee", "osee_gostream_duet"}:
+    is_osee = switcher_type in {"osee", "osee_gostream_duet"}
+    is_atem_4k8 = switcher_type in {"atem", "atem_television_studio_4k8"}
+    if not (is_osee or is_atem_4k8):
         return data
 
     migrated = dict(data)
@@ -166,7 +168,8 @@ def _apply_osee_duet_defaults(data: dict[str, Any], *, fill_unmapped_inputs: boo
             })
         elif fill_unmapped_inputs and mapping_by_source[source_id].get("ptz_camera_id") is None:
             mapping_by_source[source_id]["ptz_camera_id"] = f"cam{number}"
-    for source_id in ("MP1", "MP2", "M/SRC"):
+    extra_sources = ("MP1", "MP2", "M/SRC") if is_osee else ("Black", "MP1", "MP2", "SuperSource")
+    for source_id in extra_sources:
         if source_id not in existing_source_ids:
             mappings.append({"source_id": source_id, "display_name": source_id, "ptz_camera_id": None})
     sources["mappings"] = mappings

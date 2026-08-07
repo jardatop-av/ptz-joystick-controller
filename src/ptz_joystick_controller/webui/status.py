@@ -117,7 +117,7 @@ class RuntimeStatusProvider:
             return {
                 "connected": self.state.switcher_connected,
                 "state": SwitcherConnectionState.CONNECTED.value if self.state.switcher_connected else SwitcherConnectionState.DISCONNECTED.value,
-                "type": self.state.config.switcher.type,
+                "type": "ATEM Television Studio 4K8" if self.state.config.switcher.type == "atem_television_studio_4k8" else self.state.config.switcher.type,
                 "message": None,
                 "program_source": self.state.program_source_id,
                 "preview_source": self.state.preview_source_id,

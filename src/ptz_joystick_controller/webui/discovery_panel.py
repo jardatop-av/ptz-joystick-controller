@@ -65,7 +65,7 @@ class DiscoveryJobManager:
             "local_ip": local_ip,
             "timeout": 0.5,
             "concurrency": 32,
-            "protocols": ["osee", "vmix", "visca"],
+            "protocols": ["osee", "vmix", "visca", "atem"],
         }
 
     def start(
@@ -82,9 +82,8 @@ class DiscoveryJobManager:
         else:
             network, local_ip = auto_detect_network()
         selected = parse_protocols(protocols)
-        selected = tuple(item for item in selected if item != "atem")
         if not selected:
-            raise ValueError("Select at least one implemented discovery protocol")
+            raise ValueError("Select at least one discovery protocol")
         if timeout <= 0 or timeout > 30:
             raise ValueError("timeout must be in range (0, 30]")
         if not 1 <= concurrency <= 256:

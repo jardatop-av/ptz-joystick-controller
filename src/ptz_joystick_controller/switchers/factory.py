@@ -4,6 +4,7 @@ import logging
 
 from ..models.switcher import SwitcherConfig, SwitcherType
 from .atem import AtemCommandClient, AtemSwitcher
+from .atem_production import AtemTelevisionStudio4K8Client, ATEM_4K8_DEFAULT_PORT
 from .base import AbstractSwitcher
 from .fake import FakeSwitcher
 from .http_client import HttpClient, HttpTransport
@@ -31,6 +32,7 @@ def switcher_backend_name(config: SwitcherConfig) -> str:
         SwitcherType.VMIX: "vMix",
         SwitcherType.ATEM_MINI_PRO: "ATEM",
         SwitcherType.ATEM_TV_STUDIO_PRO_4K: "ATEM Television Studio Pro 4K",
+        SwitcherType.ATEM_TELEVISION_STUDIO_4K8: "ATEM Television Studio 4K8",
         SwitcherType.OSEE_GOSTREAM_DECK: "Osee GoStream Deck",
         SwitcherType.OSEE_GOSTREAM_DUET: "Osee GoStream Duet 8 ISO",
     }[switcher_type]
@@ -64,9 +66,15 @@ def create_switcher(
         if osee_transport_factory is not None:
             kwargs["transport_factory"] = osee_transport_factory
         return OseeGoStreamDuetSwitcher(**kwargs)
+    if switcher_type == SwitcherType.ATEM_TELEVISION_STUDIO_4K8:
+        if atem_client is None:
+            if not config.host:
+                raise ValueError("Real ATEM Television Studio 4K8 backend requires switcher.host")
+            atem_client = AtemTelevisionStudio4K8Client(config.host, config.port or ATEM_4K8_DEFAULT_PORT, timeout=timeout)
+        return AtemSwitcher(switcher_type=switcher_type, client=atem_client)
     if switcher_type in {SwitcherType.ATEM_MINI_PRO, SwitcherType.ATEM_TV_STUDIO_PRO_4K}:
         if atem_client is None:
-            raise NotImplementedError("ATEM protocol client is not implemented yet; inject an AtemCommandClient")
+            raise NotImplementedError("Legacy ATEM backend requires an injected AtemCommandClient")
         return AtemSwitcher(switcher_type=switcher_type, client=atem_client)
 
     raise ValueError(f"Unsupported switcher type: {config.type}")

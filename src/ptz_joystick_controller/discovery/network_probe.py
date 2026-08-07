@@ -15,9 +15,10 @@ from typing import Callable, Iterable, Sequence
 
 from ..ptz.packet import ViscaPacketEncoder
 from ..switchers.osee_gsp import GspTransportError, OseeGspTransport
+from ..switchers.atem_probe import AtemReadOnlyProbeClient, AtemProbeError, AtemTimeoutError, ATEM_DEFAULT_PORT
 
 LOGGER = logging.getLogger(__name__)
-DEFAULT_PORTS = {"vmix": 8088, "osee": 19010, "visca": 52381}
+DEFAULT_PORTS = {"vmix": 8088, "osee": 19010, "atem": 9910, "visca": 52381}
 SUPPORTED_PROTOCOLS = frozenset({"vmix", "osee", "atem", "visca"})
 
 
@@ -183,8 +184,19 @@ def probe_visca(host: str, context: ProbeContext, *, socket_factory: Callable[..
 
 
 def probe_atem(host: str, context: ProbeContext) -> DiscoveryResult | None:
-    del host, context
-    return None
+    client = AtemReadOnlyProbeClient(host, DEFAULT_PORTS["atem"], timeout=context.timeout, debug=context.debug, trace_packets=False)
+    try:
+        state = client.connect()
+        if not client.confirmed:
+            return None
+        product = state.product_name or "ATEM device"
+        version = state.protocol_version
+        details = product + (f" | Protocol {version}" if version else "")
+        return DiscoveryResult("ATEM", "confirmed", host, DEFAULT_PORTS["atem"], details)
+    except (AtemProbeError, AtemTimeoutError, OSError, ValueError):
+        return None
+    finally:
+        client.disconnect()
 
 
 ProbeFunction = Callable[[str, ProbeContext], DiscoveryResult | None]

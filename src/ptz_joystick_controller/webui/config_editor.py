@@ -214,6 +214,7 @@ class ConfigEditor:
                     "vmix",
                     "atem_mini_pro",
                     "atem_tv_studio_pro_4k",
+                    "atem_television_studio_4k8",
                     "osee_gostream_duet",
                 )
             },

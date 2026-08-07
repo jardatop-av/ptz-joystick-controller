@@ -30,8 +30,12 @@ class AtemSwitcher(AbstractSwitcher):
     transition_log: list[str] = field(default_factory=list)
 
     def __post_init__(self) -> None:
-        if self.switcher_type not in {SwitcherType.ATEM_MINI_PRO, SwitcherType.ATEM_TV_STUDIO_PRO_4K}:
+        if self.switcher_type not in {SwitcherType.ATEM_MINI_PRO, SwitcherType.ATEM_TV_STUDIO_PRO_4K, SwitcherType.ATEM_TELEVISION_STUDIO_4K8}:
             raise ValueError(f"Invalid ATEM switcher_type: {self.switcher_type}")
+
+    @property
+    def transition_state(self) -> str | None:
+        return getattr(self.client, "transition_state", None)
 
     @property
     def capabilities(self) -> SwitcherCapabilities:

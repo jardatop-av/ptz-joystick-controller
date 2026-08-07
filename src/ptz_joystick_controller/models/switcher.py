@@ -11,6 +11,7 @@ class SwitcherType(StrEnum):
     VMIX = "vmix"
     ATEM_MINI_PRO = "atem_mini_pro"
     ATEM_TV_STUDIO_PRO_4K = "atem_tv_studio_pro_4k"
+    ATEM_TELEVISION_STUDIO_4K8 = "atem_television_studio_4k8"
     OSEE_GOSTREAM_DECK = "osee_gostream_deck"
     OSEE_GOSTREAM_DUET = "osee_gostream_duet"
 
@@ -81,7 +82,7 @@ class SwitcherConfig(BaseModel):
         normalized = value.lower()
         aliases = {
             "osee": SwitcherType.OSEE_GOSTREAM_DUET.value,
-            "atem": SwitcherType.ATEM_MINI_PRO.value,
+            "atem": SwitcherType.ATEM_TELEVISION_STUDIO_4K8.value,
         }
         normalized = aliases.get(normalized, normalized)
         if normalized not in SUPPORTED_SWITCHERS:

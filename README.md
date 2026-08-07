@@ -1,3 +1,5 @@
+## Stage56 — Production ATEM Television Studio 4K8 backend + safe ATEM Discovery
+
 # PTZ Joystick Controller
 
 ## Stage53 logical source selector
@@ -177,7 +179,3 @@ Interactive commands are `preview SOURCE_ID`, `cut`, `auto`, `state`, `inputs`, 
 ### Stage55 Fix 2 — continuous ATEM receive loop
 
 The isolated ATEM manual-control client can now run a single dedicated background UDP receiver for the full interactive session. `scripts/manual_atem_control_test.py` starts that receiver immediately after the verified Stage54 handshake/state initialization and before entering `input()`. Physical `PrgI`, `PrvI`, `TrPs`, and `InPr` updates therefore continue to refresh local state while the prompt is idle. Transport ACK packets are dispatched to per-packet waiters by the same receiver; command methods never perform a competing socket read while the background receiver is active. Quit/Ctrl+C closes the socket and stops the receiver cleanly. The `CPvI`, `DCut`, and `DAut` payloads and reliable packet sequencing from Stage55 Fix remain unchanged.
-
-## Stage55 Fix 3
-
-The interactive ATEM manual-control tool keeps human-readable `--debug` output usable while the continuous receiver is active. Routine packet hex dumps (including high-frequency `Time` packets and their ACK maintenance traffic) are no longer emitted by the interactive tool unless `--trace-packets` is explicitly requested. Time packets continue to be received, parsed/ignored safely, and acknowledged as required. Command send/ACK/state diagnostics remain visible.
