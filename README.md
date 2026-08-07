@@ -206,3 +206,21 @@ password may be any Unicode string, including an empty string. First-run setup,
 in-GUI password changes, login and `scripts/reset_admin_password.py` all accept
 an empty password when the confirmation matches. Password storage remains Argon2id
 hash-only in `config.auth.yaml`.
+
+
+### Stage57 Fix 2 – empty-password auth bypass and collapsed Advanced YAML
+
+A configured Argon2id hash that verifies the empty string now explicitly means
+**Authentication disabled**. This is distinct from a missing `config.auth.yaml`,
+which still requires first-run setup. In the disabled mode Dashboard, Config,
+Diagnostics and management APIs do not require a login session. State-changing
+configuration forms continue to use an application-local CSRF token.
+
+The Config Security section reports `Authentication: Disabled (empty admin password)`.
+Changing to any non-empty password immediately enables session authentication and
+requires login; changing back to an empty password disables login again.
+
+The Advanced YAML editor is now a collapsed `<details>` disclosure by default.
+Its expanded state is remembered in browser `localStorage` under
+`ptz.config.advancedYamlExpanded`. The textarea remains in the DOM while collapsed,
+so unsaved YAML text is not discarded.

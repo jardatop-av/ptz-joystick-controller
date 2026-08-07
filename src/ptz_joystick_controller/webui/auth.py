@@ -25,10 +25,25 @@ class AuthStore:
     def __init__(self, path: str | Path = "config.auth.yaml") -> None:
         self.path = Path(path)
         self._lock = RLock()
+        self._empty_password_cache: tuple[str | None, bool] = (None, False)
 
     @property
     def configured(self) -> bool:
         return bool(self.password_hash())
+
+    @property
+    def authentication_disabled(self) -> bool:
+        """True only when a configured Argon2id hash verifies the empty password."""
+        stored = self.password_hash()
+        if not stored:
+            self._empty_password_cache = (None, False)
+            return False
+        cached_hash, cached_value = self._empty_password_cache
+        if cached_hash == stored:
+            return cached_value
+        disabled = self.verify("")
+        self._empty_password_cache = (stored, disabled)
+        return disabled
 
     def password_hash(self) -> str | None:
         if not self.path.exists():
@@ -61,6 +76,7 @@ class AuthStore:
             except OSError:
                 pass
             temp.replace(self.path)
+            self._empty_password_cache = (hashed, password == "")
             try:
                 self.path.chmod(0o600)
             except OSError:

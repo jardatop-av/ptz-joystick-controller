@@ -201,7 +201,7 @@ def test_password_inputs_have_no_minimum_or_required_constraint(tmp_path):
     setup_password(client)
     login(client)
     config_html = client.get("/config").text
-    security = config_html[config_html.index("<h2>Security</h2>"):config_html.index("<h2>Advanced YAML editor</h2>")]
+    security = config_html[config_html.index("<h2>Security</h2>"):config_html.index('<details id="advanced-yaml-panel"')]
     assert "minlength=" not in security
     assert "required" not in security
 
