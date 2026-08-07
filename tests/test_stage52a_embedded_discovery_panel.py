@@ -71,10 +71,12 @@ def test_scan_endpoint_invokes_existing_backend_and_returns_results(tmp_path: Pa
 
 def test_copy_ip_and_ip_port_use_clipboard_api(tmp_path: Path) -> None:
     html = _client(tmp_path)[0].get("/config").text
-    assert "navigator.clipboard.writeText(button.dataset.copy)" in html
+    assert "copyTextToClipboard(text)" in html
+    assert "navigator.clipboard.writeText(value)" in html
+    assert "document.execCommand('copy')" in html
     assert "Copy IP</button>" in html
     assert "Copy IP:Port</button>" in html
-    assert "Copied ${button.dataset.copy}" in html
+    assert "copied ? 'Copied' : 'Copy failed'" in html
 
 
 def test_results_table_and_scan_progress_are_present(tmp_path: Path) -> None:

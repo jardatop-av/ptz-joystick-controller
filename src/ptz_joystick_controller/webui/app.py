@@ -638,9 +638,51 @@ if (basicForm) {{
     }} catch (error) {{ errorBox.textContent = String(error); setRunning(false); }}
   }});
   cancelButton.addEventListener('click', async () => {{ if (jobId) await fetch(`/api/discovery/jobs/${{jobId}}/cancel`, {{method:'POST'}}); }});
+  async function copyTextToClipboard(text) {{
+    const value = String(text ?? '');
+    if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {{
+      try {{
+        await navigator.clipboard.writeText(value);
+        return true;
+      }} catch (error) {{
+        // Plain HTTP LAN pages are commonly denied access to the modern Clipboard API.
+      }}
+    }}
+    let temporary = null;
+    try {{
+      temporary = document.createElement('textarea');
+      temporary.value = value;
+      temporary.setAttribute('readonly', '');
+      temporary.setAttribute('aria-hidden', 'true');
+      temporary.style.position = 'fixed';
+      temporary.style.left = '-9999px';
+      temporary.style.top = '0';
+      temporary.style.opacity = '0';
+      document.body.appendChild(temporary);
+      temporary.focus();
+      temporary.select();
+      temporary.setSelectionRange(0, temporary.value.length);
+      return document.execCommand('copy') === true;
+    }} catch (error) {{
+      return false;
+    }} finally {{
+      if (temporary && temporary.parentNode) temporary.parentNode.removeChild(temporary);
+    }}
+  }}
+  function showCopyFeedback(message, success) {{
+    copyConfirm.textContent = message;
+    copyConfirm.classList.toggle('bad', !success);
+    copyConfirm.classList.toggle('ok', success);
+    setTimeout(() => {{
+      copyConfirm.textContent = '';
+      copyConfirm.classList.remove('bad', 'ok');
+    }}, 1600);
+  }}
   resultBody.addEventListener('click', async event => {{
     const button = event.target.closest('button[data-copy]'); if (!button) return;
-    await navigator.clipboard.writeText(button.dataset.copy); copyConfirm.textContent = `Copied ${{button.dataset.copy}}`; setTimeout(() => {{ copyConfirm.textContent = ''; }}, 1600);
+    const text = button.dataset.copy || '';
+    const copied = await copyTextToClipboard(text);
+    showCopyFeedback(copied ? 'Copied' : 'Copy failed', copied);
   }});
   fetch('/api/discovery/defaults', {{cache:'no-store'}}).then(r => r.json()).then(data => {{ const cidr = document.getElementById('discovery-cidr'); if (cidr && !cidr.value) cidr.value = data.cidr || ''; }}).catch(() => {{}});
 }})();
