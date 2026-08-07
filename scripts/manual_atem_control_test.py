@@ -63,6 +63,7 @@ def main() -> int:
     client = AtemManualControlClient(args.host, args.port, timeout=args.timeout, debug=args.debug)
     try:
         client.connect()
+        client.start_receive_loop()
         product = client.state.product_name or client.state.model_name or ATEM_TELEVISION_STUDIO_4K8_PRODUCT_NAME
         print(f"{product} connected")
         print(f"Protocol: {client.state.protocol_version or 'unknown'}")

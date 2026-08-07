@@ -1,15 +1,20 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import threading
 import time
 from typing import Callable
 
 from .atem_probe import (
+    ATEM_FLAG_ACK,
     ATEM_FLAG_RELIABLE,
+    AtemPacket,
     AtemProbeError,
+    AtemProtocolError,
     AtemReadOnlyProbeClient,
     AtemReadOnlyState,
     AtemTimeoutError,
+    apply_state_command,
     encode_atem_packet,
 )
 
@@ -95,6 +100,123 @@ class AtemManualControlClient(AtemReadOnlyProbeClient):
         self.last_command_packet_id: int | None = None
         self.last_command_name: str | None = None
         self.last_command_transport_acked = False
+        self._receiver_stop = threading.Event()
+        self._receiver_thread: threading.Thread | None = None
+        self._receiver_lock = threading.RLock()
+        self._state_condition = threading.Condition(self._receiver_lock)
+        self._ack_waiters: dict[int, threading.Event] = {}
+        self._receiver_error: BaseException | None = None
+
+    @property
+    def receiver_running(self) -> bool:
+        thread = self._receiver_thread
+        return bool(thread and thread.is_alive() and not self._receiver_stop.is_set())
+
+    def start_receive_loop(self) -> None:
+        """Start the single background UDP reader for an interactive session."""
+        if not self.connected or not self.confirmed:
+            raise AtemControlError("ATEM control client is not connected to a confirmed session")
+        if self.receiver_running:
+            return
+        self._receiver_stop.clear()
+        self._receiver_error = None
+        thread = threading.Thread(
+            target=self._receive_loop,
+            name="atem-control-rx",
+            daemon=True,
+        )
+        self._receiver_thread = thread
+        thread.start()
+
+    def stop_receive_loop(self, *, join_timeout: float | None = None) -> None:
+        self._receiver_stop.set()
+        thread = self._receiver_thread
+        if thread is None:
+            return
+        if thread is not threading.current_thread():
+            thread.join(self.timeout + 0.25 if join_timeout is None else join_timeout)
+        self._receiver_thread = None
+        with self._state_condition:
+            for event in self._ack_waiters.values():
+                event.set()
+            self._state_condition.notify_all()
+
+    def disconnect(self) -> None:
+        # Closing the UDP socket wakes the sole reader on real sockets.
+        self._receiver_stop.set()
+        super().disconnect()
+        self.stop_receive_loop(join_timeout=self.timeout + 0.25)
+        with self._receiver_lock:
+            self._ack_waiters.clear()
+
+    def _receive_loop(self) -> None:
+        self._logger.info("ATEM RX LOOP started")
+        try:
+            while not self._receiver_stop.is_set() and self.connected:
+                before_program = self.state.program_source_id
+                before_preview = self.state.preview_source_id
+                before_transition = self.state.transition_in_progress
+                try:
+                    packet = self._recv_packet()
+                    commands = self._process_session_packet(packet, context="state")
+                except AtemTimeoutError:
+                    continue
+                except AtemProbeError as exc:
+                    if self._receiver_stop.is_set() or not self.connected:
+                        break
+                    self._receiver_error = exc
+                    self._logger.warning("ATEM RX LOOP error: %s", exc)
+                    break
+
+                with self._state_condition:
+                    for command in commands:
+                        try:
+                            apply_state_command(self.state, command)
+                        except AtemProtocolError as exc:
+                            self._logger.debug(
+                                "Ignoring malformed ATEM command %s: %s",
+                                command.name,
+                                exc,
+                            )
+                    self._state_condition.notify_all()
+
+                if self.state.preview_source_id != before_preview:
+                    self._logger.info(
+                        "ATEM STATE Preview changed: %s -> %s",
+                        self.state.preview_source_id,
+                        self.state.source_label(self.state.preview_source_id),
+                    )
+                if self.state.program_source_id != before_program:
+                    self._logger.info(
+                        "ATEM STATE Program changed: %s -> %s",
+                        self.state.program_source_id,
+                        self.state.source_label(self.state.program_source_id),
+                    )
+                if self.state.transition_in_progress != before_transition:
+                    self._logger.debug(
+                        "ATEM STATE transition_in_progress=%s",
+                        self.state.transition_in_progress,
+                    )
+        finally:
+            with self._state_condition:
+                for event in self._ack_waiters.values():
+                    event.set()
+                self._state_condition.notify_all()
+            self._logger.info("ATEM RX LOOP stopped")
+
+    def _process_session_packet(
+        self,
+        packet: AtemPacket,
+        *,
+        context: str,
+    ):  # type: ignore[no-untyped-def]
+        commands = super()._process_session_packet(packet, context=context)
+        if packet.flags & ATEM_FLAG_ACK and packet.ack_id:
+            with self._receiver_lock:
+                waiter = self._ack_waiters.get(packet.ack_id)
+                if waiter is not None:
+                    waiter.set()
+        return commands
 
     def set_preview(self, source_id: int, *, feedback_timeout: float | None = None) -> AtemReadOnlyState:
         _validate_source_id(source_id)
@@ -156,6 +278,9 @@ class AtemManualControlClient(AtemReadOnlyProbeClient):
         self.last_command_packet_id = packet_id
         self.last_command_name = command.name
         self.last_command_transport_acked = False
+        if self.receiver_running:
+            with self._receiver_lock:
+                self._ack_waiters[packet_id] = threading.Event()
         packet = encode_atem_packet(
             flags=ATEM_FLAG_RELIABLE,
             session_id=self.session_id,
@@ -170,6 +295,29 @@ class AtemManualControlClient(AtemReadOnlyProbeClient):
         wait_timeout = self.timeout if timeout is None else timeout
         if wait_timeout <= 0:
             raise ValueError("transport ACK timeout must be positive")
+
+        if self.receiver_running:
+            with self._receiver_lock:
+                event = self._ack_waiters.setdefault(packet_id, threading.Event())
+                already_acked = self.consume_local_packet_ack(packet_id)
+                if already_acked:
+                    event.set()
+            if event.wait(wait_timeout):
+                if self._receiver_error is not None and not self.is_local_packet_acked(packet_id):
+                    raise AtemControlError(f"ATEM receive loop failed: {self._receiver_error}")
+                self.consume_local_packet_ack(packet_id)
+                with self._receiver_lock:
+                    self._ack_waiters.pop(packet_id, None)
+                self.last_command_transport_acked = True
+                self._logger.info("ATEM COMMAND ACK packet_id=%d", packet_id)
+                return
+            with self._receiver_lock:
+                self._ack_waiters.pop(packet_id, None)
+            self._logger.warning("ATEM COMMAND ACK TIMEOUT packet_id=%d", packet_id)
+            raise AtemTransportAckTimeout(f"Timed out waiting for transport ACK for packet_id={packet_id}")
+
+        # Backward-compatible synchronous path for isolated unit tests that do
+        # not start the interactive receiver. Never used while the RX loop runs.
         if self.consume_local_packet_ack(packet_id):
             self.last_command_transport_acked = True
             self._logger.info("ATEM COMMAND ACK packet_id=%d", packet_id)
@@ -199,6 +347,20 @@ class AtemManualControlClient(AtemReadOnlyProbeClient):
             raise ValueError("feedback timeout must be positive")
         if predicate(self.state):
             return
+
+        if self.receiver_running:
+            deadline = time.monotonic() + wait_timeout
+            with self._state_condition:
+                while not predicate(self.state):
+                    if self._receiver_error is not None:
+                        raise AtemControlError(f"ATEM receive loop failed: {self._receiver_error}")
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise AtemStateFeedbackTimeout(f"Timed out waiting for {description}")
+                    self._state_condition.wait(remaining)
+            return
+
+        # Backward-compatible synchronous path when no background reader exists.
         deadline = time.monotonic() + wait_timeout
         while time.monotonic() < deadline:
             try:

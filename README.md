@@ -172,3 +172,8 @@ python scripts/manual_atem_control_test.py --host 192.168.1.184 --port 9910 --ti
 ```
 
 Interactive commands are `preview SOURCE_ID`, `cut`, `auto`, `state`, `inputs`, and `quit`.
+
+
+### Stage55 Fix 2 — continuous ATEM receive loop
+
+The isolated ATEM manual-control client can now run a single dedicated background UDP receiver for the full interactive session. `scripts/manual_atem_control_test.py` starts that receiver immediately after the verified Stage54 handshake/state initialization and before entering `input()`. Physical `PrgI`, `PrvI`, `TrPs`, and `InPr` updates therefore continue to refresh local state while the prompt is idle. Transport ACK packets are dispatched to per-packet waiters by the same receiver; command methods never perform a competing socket read while the background receiver is active. Quit/Ctrl+C closes the socket and stops the receiver cleanly. The `CPvI`, `DCut`, and `DAut` payloads and reliable packet sequencing from Stage55 Fix remain unchanged.
