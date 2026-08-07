@@ -531,12 +531,12 @@ def render_config_html(config_editor: ConfigEditor, *, message: str = "", csrf_t
   <legend>Admin password</legend>
   <form method="post" action="/security/change-password">
     <input type="hidden" name="csrf_token" value="{escape(csrf_token)}">
-    <label>Current password <input type="password" name="current_password" autocomplete="current-password" required></label>
-    <label>New password <input type="password" name="new_password" autocomplete="new-password" minlength="8" required></label>
-    <label>Confirm new password <input type="password" name="confirm_password" autocomplete="new-password" minlength="8" required></label>
+    <label>Current password <input type="password" name="current_password" autocomplete="current-password"></label>
+    <label>New password <input type="password" name="new_password" autocomplete="new-password"></label>
+    <label>Confirm new password <input type="password" name="confirm_password" autocomplete="new-password"></label>
     <button type="submit">Change password</button>
   </form>
-  <small>Minimum 8 characters. Changing the password signs out all sessions.</small>
+  <small>Any password string is accepted. Changing the password signs out all sessions.</small>
 </fieldset>
 
 <h2>Advanced YAML editor</h2>
@@ -718,12 +718,12 @@ SESSION_COOKIE = "ptz_session"
 def _auth_page(*, setup: bool = False, message: str = "") -> str:
     title = "Set admin password" if setup else "Admin login"
     fields = (
-        '<label>New password<input type="password" name="new_password" minlength="8" autocomplete="new-password" required></label>'
-        '<label>Confirm password<input type="password" name="confirm_password" minlength="8" autocomplete="new-password" required></label>'
+        '<label>New password<input type="password" name="new_password" autocomplete="new-password"></label>'
+        '<label>Confirm password<input type="password" name="confirm_password" autocomplete="new-password"></label>'
         if setup else
         '<label>Username<input value="admin" readonly aria-readonly="true"></label>'
         '<input type="hidden" name="username" value="admin">'
-        '<label>Password<input type="password" name="password" autocomplete="current-password" required></label>'
+        '<label>Password<input type="password" name="password" autocomplete="current-password"></label>'
     )
     action = "/setup" if setup else "/login"
     button = "Set password" if setup else "Login"

@@ -197,3 +197,12 @@ locally with:
 `config.auth.yaml` is local-only and ignored by Git. Authentication affects only the web
 management interface; joystick, switcher and PTZ processing continue without a logged-in
 browser.
+
+
+### Stage57 Fix 1 – operator-defined password policy
+
+There is intentionally no password length or complexity requirement. The `admin`
+password may be any Unicode string, including an empty string. First-run setup,
+in-GUI password changes, login and `scripts/reset_admin_password.py` all accept
+an empty password when the confirmation matches. Password storage remains Argon2id
+hash-only in `config.auth.yaml`.

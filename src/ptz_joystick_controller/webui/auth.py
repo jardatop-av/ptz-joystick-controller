@@ -16,8 +16,6 @@ import yaml
 
 LOGGER = logging.getLogger(__name__)
 ADMIN_USERNAME = "admin"
-MIN_PASSWORD_LENGTH = 8
-
 
 class AuthError(ValueError):
     pass
@@ -70,8 +68,9 @@ class AuthStore:
 
 
 def validate_password(password: str) -> None:
-    if len(password) < MIN_PASSWORD_LENGTH:
-        raise AuthError(f"Password must be at least {MIN_PASSWORD_LENGTH} characters.")
+    """Accept any password string; policy is intentionally operator-defined."""
+    if not isinstance(password, str):
+        raise AuthError("Password must be a string.")
 
 
 @dataclass

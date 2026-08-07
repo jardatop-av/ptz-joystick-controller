@@ -3,8 +3,8 @@ import yaml
 from fastapi.testclient import TestClient
 
 from ptz_joystick_controller.config import load_config
-from ptz_joystick_controller.webui import RuntimeStatusProvider, create_web_app
 from ptz_joystick_controller.app_state import AppState
+from ptz_joystick_controller.webui import RuntimeStatusProvider, create_web_app
 from ptz_joystick_controller.webui.auth import AuthStore
 
 
@@ -51,11 +51,12 @@ def test_setup_hashes_password_without_plaintext(tmp_path):
     assert not AuthStore(auth).verify("wrong")
 
 
-def test_setup_requires_matching_and_minimum_passwords(tmp_path):
+def test_setup_requires_matching_but_accepts_short_passwords(tmp_path):
     client, auth = app_client(tmp_path)
-    assert client.post("/setup", data={"new_password": "abcdefgh", "confirm_password": "abcdefgi"}).status_code == 400
-    assert client.post("/setup", data={"new_password": "short", "confirm_password": "short"}).status_code == 400
+    assert client.post("/setup", data={"new_password": "a", "confirm_password": "b"}).status_code == 400
     assert not auth.exists()
+    assert client.post("/setup", data={"new_password": "x", "confirm_password": "x"}, follow_redirects=False).status_code == 303
+    assert AuthStore(auth).verify("x")
 
 
 def test_login_cookie_and_protected_pages(tmp_path):
@@ -130,3 +131,93 @@ def test_security_section_and_logout_in_authenticated_gui(tmp_path):
     assert "Change password" in html
     assert 'action="/logout"' in html
     assert 'name="csrf_token"' in html
+
+
+def test_empty_password_first_run_and_login(tmp_path):
+    client, auth = app_client(tmp_path)
+    response = client.post("/setup", data={"new_password": "", "confirm_password": ""}, follow_redirects=False)
+    assert response.status_code == 303
+    text = auth.read_text(encoding="utf-8")
+    assert "$argon2id$" in text
+    assert AuthStore(auth).verify("")
+    login_response = client.post("/login", data={"username": "admin", "password": ""}, follow_redirects=False)
+    assert login_response.status_code == 303
+
+
+def test_one_character_unicode_spaces_and_punctuation_are_accepted(tmp_path):
+    for index, password in enumerate(("x", " ", "č", "!?", "a b")):
+        auth = tmp_path / f"auth-{index}.yaml"
+        store = AuthStore(auth)
+        store.set_password(password)
+        assert store.verify(password)
+        assert "$argon2id$" in auth.read_text(encoding="utf-8")
+
+
+def test_password_can_be_changed_to_empty(tmp_path):
+    client, auth = app_client(tmp_path)
+    setup_password(client)
+    login(client)
+    csrf = csrf_from_config(client)
+    response = client.post(
+        "/security/change-password",
+        data={
+            "csrf_token": csrf,
+            "current_password": "heslo1234",
+            "new_password": "",
+            "confirm_password": "",
+        },
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    assert AuthStore(auth).verify("")
+    assert not AuthStore(auth).verify("heslo1234")
+    assert client.post("/login", data={"username": "admin", "password": ""}, follow_redirects=False).status_code == 303
+
+
+def test_wrong_current_password_is_still_rejected(tmp_path):
+    client, auth = app_client(tmp_path)
+    setup_password(client)
+    login(client)
+    csrf = csrf_from_config(client)
+    response = client.post(
+        "/security/change-password",
+        data={
+            "csrf_token": csrf,
+            "current_password": "wrong",
+            "new_password": "",
+            "confirm_password": "",
+        },
+    )
+    assert response.status_code == 400
+    assert AuthStore(auth).verify("heslo1234")
+
+
+def test_password_inputs_have_no_minimum_or_required_constraint(tmp_path):
+    client, _ = app_client(tmp_path)
+    setup_html = client.get("/setup").text
+    assert 'minlength=' not in setup_html
+    assert 'type="password"' in setup_html
+    assert 'type="password" name="new_password"' in setup_html
+    setup_password(client)
+    login(client)
+    config_html = client.get("/config").text
+    security = config_html[config_html.index("<h2>Security</h2>"):config_html.index("<h2>Advanced YAML editor</h2>")]
+    assert "minlength=" not in security
+    assert "required" not in security
+
+
+def test_cli_reset_accepts_empty_password(tmp_path, monkeypatch):
+    import importlib.util
+    script_path = Path("scripts/reset_admin_password.py")
+    spec = importlib.util.spec_from_file_location("reset_admin_password_stage57", script_path)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+
+    answers = iter(["", ""])
+    monkeypatch.setattr(module, "getpass", lambda _prompt: next(answers))
+    auth_file = tmp_path / "cli-auth.yaml"
+    monkeypatch.setattr("sys.argv", ["reset_admin_password.py", "--auth-file", str(auth_file)])
+    assert module.main() == 0
+    assert AuthStore(auth_file).verify("")
+    assert "$argon2id$" in auth_file.read_text(encoding="utf-8")
