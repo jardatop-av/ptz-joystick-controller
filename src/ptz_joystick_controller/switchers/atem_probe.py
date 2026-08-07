@@ -279,6 +279,7 @@ class AtemReadOnlyProbeClient:
         socket_factory: SocketFactory | None = None,
         logger: logging.Logger | None = None,
         debug: bool = False,
+        trace_packets: bool | None = None,
     ) -> None:
         if not host.strip():
             raise ValueError("ATEM host must not be empty")
@@ -292,6 +293,11 @@ class AtemReadOnlyProbeClient:
         self._socket_factory = socket_factory or _socket_factory
         self._logger = logger or logging.getLogger(__name__)
         self._debug = debug
+        # Packet hex tracing is intentionally separate from human-readable
+        # DEBUG diagnostics.  ``None`` preserves the historical Stage54
+        # behaviour for callers that have not opted into the new control-tool
+        # flag; the Stage55 interactive script passes an explicit bool.
+        self._trace_packets = debug if trace_packets is None else trace_packets
         self._socket: DatagramSocketLike | None = None
         self.session_id = ATEM_INITIAL_SESSION_ID
         self.state = AtemReadOnlyState()
@@ -433,14 +439,14 @@ class AtemReadOnlyProbeClient:
             raise AtemTimeoutError("Timed out waiting for ATEM UDP response") from exc
         except OSError as exc:
             raise AtemProbeError(f"ATEM UDP receive failed: {exc}") from exc
-        if self._debug:
+        if self._trace_packets:
             self._logger.debug("ATEM RECV %s", data.hex(" "))
         return decode_atem_packet(data)
 
     def _send(self, data: bytes, purpose: str) -> None:
         if self._socket is None:
             raise AtemProbeError("ATEM probe is not connected")
-        if self._debug:
+        if self._trace_packets:
             self._logger.debug("ATEM SEND %s %s", purpose, data.hex(" "))
         try:
             self._socket.send(data)

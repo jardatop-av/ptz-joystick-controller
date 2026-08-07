@@ -28,7 +28,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--host", required=True)
     parser.add_argument("--port", type=int, default=ATEM_DEFAULT_PORT)
     parser.add_argument("--timeout", type=float, default=2.0)
-    parser.add_argument("--debug", action="store_true")
+    parser.add_argument("--debug", action="store_true", help="Human-readable ATEM session/state diagnostics")
+    parser.add_argument(
+        "--trace-packets",
+        action="store_true",
+        help="Additionally dump raw ATEM UDP packet hex (very verbose)",
+    )
     return parser
 
 
@@ -60,7 +65,13 @@ def main() -> int:
         level=logging.DEBUG if args.debug else logging.INFO,
         format="%(asctime)s %(levelname)s %(message)s",
     )
-    client = AtemManualControlClient(args.host, args.port, timeout=args.timeout, debug=args.debug)
+    client = AtemManualControlClient(
+        args.host,
+        args.port,
+        timeout=args.timeout,
+        debug=args.debug,
+        trace_packets=args.trace_packets,
+    )
     try:
         client.connect()
         client.start_receive_loop()
