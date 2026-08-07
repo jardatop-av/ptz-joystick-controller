@@ -175,3 +175,13 @@ Only private RFC1918 or IPv4 link-local networks up to /16 are accepted. ATEM is
 ## Stage52A embedded discovery panel
 
 The Config page now contains a collapsed, read-only **Discovery** panel. It reuses the Stage52 Lite vMix, Osee GSP and VISCA probes, keeps results only in browser memory, and never writes configuration or starts the production runtime. Scans support bounded concurrency, progress polling, cancellation, and clipboard copy helpers for IP and IP:port values.
+
+## Stage54 — read-only ATEM probe
+
+Stage54 adds an isolated ATEM UDP probe for safely verifying a switcher before any control integration. It performs only the mandatory ATEM session handshake/ACK maintenance and parses incoming state (`_pin`, `_ver`, `PrgI`, `PrvI`, `InPr`, `InCm`). It is not connected to `RuntimeApplication`.
+
+Example:
+
+```bash
+python scripts/manual_atem_probe.py --host 192.168.1.184 --port 9910 --duration 20 --debug
+```
