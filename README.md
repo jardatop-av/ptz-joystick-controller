@@ -224,3 +224,38 @@ The Advanced YAML editor is now a collapsed `<details>` disclosure by default.
 Its expanded state is remembered in browser `localStorage` under
 `ptz.config.advancedYamlExpanded`. The textarea remains in the DOM while collapsed,
 so unsaved YAML text is not discarded.
+
+
+## Stage58 – isolated Osee GoStream Deck write probe
+
+Stage58 adds an isolated manual write/control probe for the **Osee GoStream Deck**.
+It deliberately does **not** register a production runtime backend.
+
+The Deck-specific logical GSP source map is:
+
+- Input 1 → 1
+- Input 2 → 2
+- Input 3 → 3
+- Input 4 → 4
+- AUX → 4001
+- STILL1 → 3010
+- STILL2 → 3020
+- S/SRC → 5001
+
+This map is intentionally separate from the GoStream Duet 8 ISO map even when
+numeric GSP IDs overlap. The shared `OseeGspTransport` remains the common framing,
+CRC, TCP and stream parser implementation.
+
+Manual hardware test:
+
+    python scripts/manual_osee_gostream_deck_control.py --host 192.168.1.182 --port 19010 --debug
+
+Supported interactive operations are `state`, `preview ...`, `cut`, `auto`,
+`copy-program-to-preview`, and `quit`. Preview success is confirmed only from
+incoming `pvwIndex` feedback; AUTO start/completion is observed from
+`transitionStatus`.
+
+For a future production capability profile, the expected default PTZ mapping is
+Input 1→cam1 through Input 4→cam4. AUX must remain operator-configurable to any
+PTZ camera or None because it may represent a camera source. STILL1, STILL2 and
+S/SRC should default to no PTZ mapping. Stage58 does not implement any PTZ mapping.
