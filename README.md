@@ -291,3 +291,29 @@ Osee network discovery remains generic and read-only. It still sends only
 `pgmIndex`, `pvwIndex` and `transitionStatus` GSP GET requests and does not guess
 the specific Osee model when the protocol response does not identify it reliably.
 The Stage58 manual control probe remains available unchanged for hardware diagnostics.
+
+
+## Stage60 – ATEM Mini Pro production profile
+
+ATEM Mini Pro is now a supported production switcher using the same existing
+ATEM UDP session/transport/state implementation as ATEM Television Studio 4K8.
+The Mini Pro model difference is represented by profile/source metadata and the
+shared production ATEM adapter.
+
+Supported normal Preview/Program workflow sources:
+
+- Input 1 (ATEM source 1)
+- Input 2 (ATEM source 2)
+- Input 3 (ATEM source 3)
+- Input 4 (ATEM source 4)
+- STILL (ATEM source 3010)
+- BLACK (ATEM source 0)
+
+Default PTZ mappings are Input 1→cam1 through Input 4→cam4. STILL and BLACK
+default to no PTZ camera. Direct switching mode is intentionally outside the
+supported PTZ-controller workflow.
+
+The required protocol behaviour/source IDs came from prior real-hardware testing
+of an ATEM Mini Pro at 192.168.1.181:9910 (discovery reported
+`ATEM Mini Pro | Protocol 2.31`). This Stage60 implementation run did not itself
+perform real-hardware verification.

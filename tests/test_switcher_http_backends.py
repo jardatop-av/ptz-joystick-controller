@@ -153,12 +153,12 @@ def test_atem_abstraction_uses_injected_command_client_without_protocol_details(
     switcher = AtemSwitcher(SwitcherType.ATEM_MINI_PRO, client)
 
     switcher.connect()
-    switcher.set_preview_source("CH3")
+    switcher.set_preview_source("Input 3")
     switcher.cut()
 
     assert switcher.is_connected()
-    assert client.commands == ["connect", "poll", "set_preview:CH3", "cut"]
-    assert switcher.get_program_source() == "CH3"
+    assert client.commands == ["connect", "poll", "set_preview:Input 3", "cut"]
+    assert switcher.get_program_source() == "Input 3"
     assert switcher.get_preview_source() == "CH1"
 
 

@@ -62,7 +62,11 @@ AVAILABLE_SOURCES_BY_SWITCHER: dict[SwitcherType, tuple[Source, ...]] = {
         _source("MP2", "MP2", SourceType.MEDIA_PLAYER),
         _source("M/SRC", "M/SRC", SourceType.INTERNAL),
     ),
-    SwitcherType.ATEM_MINI_PRO: _camera_sources(4),
+    SwitcherType.ATEM_MINI_PRO: (
+        *_vmix_sources(4),
+        _source("STILL", "STILL", SourceType.STILL),
+        _source("BLACK", "BLACK", SourceType.BLACK),
+    ),
     SwitcherType.ATEM_TV_STUDIO_PRO_4K: _camera_sources(10),
     SwitcherType.ATEM_TELEVISION_STUDIO_4K8: (
         *_vmix_sources(8),

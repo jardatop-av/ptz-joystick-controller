@@ -4,7 +4,7 @@ import logging
 
 from ..models.switcher import SwitcherConfig, SwitcherType
 from .atem import AtemCommandClient, AtemSwitcher
-from .atem_production import AtemTelevisionStudio4K8Client, ATEM_4K8_DEFAULT_PORT
+from .atem_production import AtemMiniProClient, AtemTelevisionStudio4K8Client, ATEM_4K8_DEFAULT_PORT, ATEM_MINI_PRO_DEFAULT_PORT
 from .base import AbstractSwitcher
 from .fake import FakeSwitcher
 from .http_client import HttpClient, HttpTransport
@@ -30,7 +30,7 @@ def switcher_backend_name(config: SwitcherConfig) -> str:
     switcher_type = SwitcherType(config.type)
     return {
         SwitcherType.VMIX: "vMix",
-        SwitcherType.ATEM_MINI_PRO: "ATEM",
+        SwitcherType.ATEM_MINI_PRO: "ATEM Mini Pro",
         SwitcherType.ATEM_TV_STUDIO_PRO_4K: "ATEM Television Studio Pro 4K",
         SwitcherType.ATEM_TELEVISION_STUDIO_4K8: "ATEM Television Studio 4K8",
         SwitcherType.OSEE_GOSTREAM_DECK: "Osee GoStream Deck",
@@ -75,7 +75,13 @@ def create_switcher(
                 raise ValueError("Real ATEM Television Studio 4K8 backend requires switcher.host")
             atem_client = AtemTelevisionStudio4K8Client(config.host, config.port or ATEM_4K8_DEFAULT_PORT, timeout=timeout)
         return AtemSwitcher(switcher_type=switcher_type, client=atem_client)
-    if switcher_type in {SwitcherType.ATEM_MINI_PRO, SwitcherType.ATEM_TV_STUDIO_PRO_4K}:
+    if switcher_type == SwitcherType.ATEM_MINI_PRO:
+        if atem_client is None:
+            if not config.host:
+                raise ValueError("Real ATEM Mini Pro backend requires switcher.host")
+            atem_client = AtemMiniProClient(config.host, config.port or ATEM_MINI_PRO_DEFAULT_PORT, timeout=timeout)
+        return AtemSwitcher(switcher_type=switcher_type, client=atem_client)
+    if switcher_type == SwitcherType.ATEM_TV_STUDIO_PRO_4K:
         if atem_client is None:
             raise NotImplementedError("Legacy ATEM backend requires an injected AtemCommandClient")
         return AtemSwitcher(switcher_type=switcher_type, client=atem_client)

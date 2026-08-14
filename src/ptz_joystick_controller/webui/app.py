@@ -491,6 +491,7 @@ def render_config_html(config_editor: ConfigEditor, *, message: str = "", csrf_t
     <label>Type
       <select name="switcher_type" id="switcher-type">
         <option value="vmix"{_selected(switcher.get('type'), 'vmix')}>vMix</option>
+        <option value="atem_mini_pro"{_selected(switcher.get('type'), 'atem_mini_pro')}>ATEM Mini Pro</option>
         <option value="atem_television_studio_4k8"{_selected(switcher.get('type'), 'atem_television_studio_4k8')}>ATEM Television Studio 4K8</option>
         <option value="osee_gostream_deck"{_selected(switcher.get('type'), 'osee_gostream_deck')}>Osee GoStream Deck</option>
         <option value="osee_gostream_duet"{_selected(switcher.get('type'), 'osee_gostream_duet')}>Osee GoStream Duet 8 ISO</option>
@@ -610,7 +611,7 @@ function refreshSourceSelectors() {{
 function updateSwitcherHints() {{
   if (!switcherType || !switcherPort || !switcherSources) return;
   const type = switcherType.value;
-  if (!switcherPort.value) switcherPort.value = (type === 'osee_gostream_duet' || type === 'osee_gostream_deck') ? '19010' : (type === 'vmix' ? '8088' : (type === 'atem_television_studio_4k8' ? '9910' : ''));
+  if (!switcherPort.value) switcherPort.value = (type === 'osee_gostream_duet' || type === 'osee_gostream_deck') ? '19010' : (type === 'vmix' ? '8088' : ((type === 'atem_television_studio_4k8' || type === 'atem_mini_pro') ? '9910' : ''));
   const options = currentSourceOptions();
   switcherSources.textContent = options.length ? `Logical sources: ${{options.join(', ')}}` : 'No logical sources available';
 }}
