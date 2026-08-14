@@ -8,7 +8,7 @@ from .atem_production import AtemTelevisionStudio4K8Client, ATEM_4K8_DEFAULT_POR
 from .base import AbstractSwitcher
 from .fake import FakeSwitcher
 from .http_client import HttpClient, HttpTransport
-from .osee_gostream_deck import OseeGoStreamDeckSwitcher
+from .osee_gostream_deck import DeckTransportFactory, OseeGoStreamDeckSwitcher
 from .osee_gostream_duet import OseeGoStreamDuetSwitcher, TransportFactory
 from .vmix import VmixSwitcher
 
@@ -44,7 +44,7 @@ def create_switcher(
     offline: bool = True,
     http_transport: HttpTransport | None = None,
     atem_client: AtemCommandClient | None = None,
-    osee_transport_factory: TransportFactory | None = None,
+    osee_transport_factory: TransportFactory | DeckTransportFactory | None = None,
 ) -> AbstractSwitcher:
     if offline:
         return create_offline_switcher(config)
@@ -56,9 +56,12 @@ def create_switcher(
     if switcher_type == SwitcherType.VMIX:
         return VmixSwitcher(HttpClient(_base_url(config, 8088), timeout_seconds=timeout, retries=retries, transport=http_transport))
     if switcher_type == SwitcherType.OSEE_GOSTREAM_DECK:
-        return OseeGoStreamDeckSwitcher(
-            HttpClient(_base_url(config, 80), timeout_seconds=timeout, retries=retries, transport=http_transport)
-        )
+        if not config.host:
+            raise ValueError("Real Osee GoStream Deck backend requires switcher.host")
+        kwargs = {"host": config.host, "port": config.port or 19010}
+        if osee_transport_factory is not None:
+            kwargs["transport_factory"] = osee_transport_factory
+        return OseeGoStreamDeckSwitcher(**kwargs)
     if switcher_type == SwitcherType.OSEE_GOSTREAM_DUET:
         if not config.host:
             raise ValueError("Real Osee Duet backend requires switcher.host")

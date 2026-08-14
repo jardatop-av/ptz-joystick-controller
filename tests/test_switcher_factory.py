@@ -13,7 +13,7 @@ from ptz_joystick_controller.switchers.factory import create_switcher as factory
 @pytest.mark.parametrize(
     ("switcher_type", "expected_ids"),
     [
-        (SwitcherType.OSEE_GOSTREAM_DECK, ("CH1", "CH2", "CH3", "CH4", "AUX", "STILL1", "STILL2", "BLACK")),
+        (SwitcherType.OSEE_GOSTREAM_DECK, ("Input 1", "Input 2", "Input 3", "Input 4", "AUX", "STILL1", "STILL2", "S/SRC")),
         (
             SwitcherType.OSEE_GOSTREAM_DUET,
             ("Input 1", "Input 2", "Input 3", "Input 4", "Input 5", "Input 6", "Input 7", "Input 8", "MP1", "MP2", "M/SRC"),
@@ -38,10 +38,10 @@ def test_vmix_exposes_input_1_to_100() -> None:
 
 def test_source_metadata_marks_non_camera_sources() -> None:
     sources = {source.id: source for source in get_available_sources(SwitcherType.OSEE_GOSTREAM_DECK)}
-    assert sources["CH1"].type == SourceType.CAMERA
+    assert sources["Input 1"].type == SourceType.CAMERA
     assert sources["AUX"].type == SourceType.AUX
     assert sources["STILL1"].type == SourceType.STILL
-    assert sources["BLACK"].type == SourceType.BLACK
+    assert sources["S/SRC"].type == SourceType.INTERNAL
 
 
 def test_switcher_factory_returns_offline_fake_switcher() -> None:

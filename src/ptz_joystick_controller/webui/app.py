@@ -353,14 +353,20 @@ def render_config_html(config_editor: ConfigEditor, *, message: str = "", csrf_t
     raw_yaml = yaml.safe_dump(config_editor.patch_to_local_override_unvalidated(payload), sort_keys=False, allow_unicode=True)
 
     camera_rows = []
+    supported_source_set = set(source_options)
     for index, camera in enumerate(cameras):
-        logical_source = f"Input {index + 1}" if index < 8 else ""
+        candidate_source = f"Input {index + 1}"
+        logical_source = candidate_source if candidate_source in supported_source_set else ""
         mapping = source_mappings.get(logical_source, {})
         mapping_field = logical_source.replace(" ", "_").replace("/", "_") if logical_source else ""
+        mapping_control = (
+            f"<input name='source_mapping_{mapping_field}' value='{_html_value(mapping.get('ptz_camera_id', camera['id']))}'>"
+            if logical_source else "—"
+        )
         camera_rows.append(
             "<tr>"
             f"<td>{escape(logical_source)}</td>"
-            f"<td><input name='source_mapping_{mapping_field}' value='{_html_value(mapping.get('ptz_camera_id', camera['id']))}'></td>"
+            f"<td>{mapping_control}</td>"
             f"<td><code>{escape(str(camera['id']))}</code><input type='hidden' name='camera_{index}_id' value='{_html_value(camera['id'])}'></td>"
             f"<td><input type='checkbox' name='camera_{index}_enabled'{_checked(bool(camera['enabled']))}></td>"
             f"<td><input name='camera_{index}_name' value='{_html_value(camera['name'])}'></td>"
@@ -384,6 +390,32 @@ def render_config_html(config_editor: ConfigEditor, *, message: str = "", csrf_t
             f"<td class='button-source-cell' data-button-id='{escape(button_id)}'{'' if action == ButtonAction.PREVIEW_SOURCE else ' hidden'}><select class='button-source-id' data-button-id='{escape(button_id)}' name='button_{button_id}_source_id'>{_source_select_options(source_options, mapping.get('source_id'))}</select></td>"
             f"<td><input class='button-preset-number' data-button-id='{escape(button_id)}' type='number' min='0' max='255' name='button_{button_id}_preset_number' value='{_html_value(mapping.get('preset_number'))}'></td>"
             "</tr>"
+        )
+
+    deck_special_mapping_html = ""
+    if switcher.get("type") == "osee_gostream_deck":
+        camera_ids = [str(camera["id"]) for camera in cameras]
+        rows = []
+        for source_id in ("AUX", "STILL1", "STILL2", "S/SRC"):
+            mapping = source_mappings.get(source_id, {})
+            current_camera = mapping.get("ptz_camera_id")
+            field = source_id.replace(" ", "_").replace("/", "_")
+            options = [f"<option value=''{' selected' if not current_camera else ''}>None</option>"]
+            options.extend(
+                f"<option value='{_html_value(camera_id)}'{_selected(current_camera, camera_id)}>{escape(camera_id)}</option>"
+                for camera_id in camera_ids
+            )
+            rows.append(
+                "<tr>"
+                f"<td>{escape(source_id)}</td>"
+                f"<td><select name='source_mapping_{field}'>{''.join(options)}</select></td>"
+                "</tr>"
+            )
+        deck_special_mapping_html = (
+            "<fieldset><legend>GoStream Deck additional PTZ source mappings</legend>"
+            "<p>AUX may be mapped to any configured PTZ camera or None. STILL1, STILL2 and S/SRC default to None.</p>"
+            "<table><thead><tr><th>logical source</th><th>PTZ camera</th></tr></thead>"
+            f"<tbody>{''.join(rows)}</tbody></table></fieldset>"
         )
 
     status_message = message or "Basic form saves only to config.local.yaml. Use Save and apply to update the running process."
@@ -460,6 +492,7 @@ def render_config_html(config_editor: ConfigEditor, *, message: str = "", csrf_t
       <select name="switcher_type" id="switcher-type">
         <option value="vmix"{_selected(switcher.get('type'), 'vmix')}>vMix</option>
         <option value="atem_television_studio_4k8"{_selected(switcher.get('type'), 'atem_television_studio_4k8')}>ATEM Television Studio 4K8</option>
+        <option value="osee_gostream_deck"{_selected(switcher.get('type'), 'osee_gostream_deck')}>Osee GoStream Deck</option>
         <option value="osee_gostream_duet"{_selected(switcher.get('type'), 'osee_gostream_duet')}>Osee GoStream Duet 8 ISO</option>
       </select>
     </label>
@@ -499,6 +532,7 @@ def render_config_html(config_editor: ConfigEditor, *, message: str = "", csrf_t
     <legend>PTZ Cameras</legend>
     <table><thead><tr><th>logical input</th><th>mapped camera</th><th>id</th><th>enabled</th><th>name</th><th>host</th><th>port</th><th>VISCA ID</th><th>preset_offset</th></tr></thead><tbody>{''.join(camera_rows)}</tbody></table>
   </fieldset>
+  {deck_special_mapping_html}
 
   <fieldset>
     <legend>Joystick Axis</legend>
@@ -576,7 +610,7 @@ function refreshSourceSelectors() {{
 function updateSwitcherHints() {{
   if (!switcherType || !switcherPort || !switcherSources) return;
   const type = switcherType.value;
-  if (!switcherPort.value) switcherPort.value = type === 'osee_gostream_duet' ? '19010' : (type === 'vmix' ? '8088' : (type === 'atem_television_studio_4k8' ? '9910' : ''));
+  if (!switcherPort.value) switcherPort.value = (type === 'osee_gostream_duet' || type === 'osee_gostream_deck') ? '19010' : (type === 'vmix' ? '8088' : (type === 'atem_television_studio_4k8' ? '9910' : ''));
   const options = currentSourceOptions();
   switcherSources.textContent = options.length ? `Logical sources: ${{options.join(', ')}}` : 'No logical sources available';
 }}

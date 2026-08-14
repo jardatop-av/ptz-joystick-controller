@@ -124,8 +124,9 @@ def _apply_osee_duet_defaults(data: dict[str, Any], *, fill_unmapped_inputs: boo
         return data
     switcher_type = str(switcher.get("type", "")).strip().lower()
     is_osee = switcher_type in {"osee", "osee_gostream_duet"}
+    is_osee_deck = switcher_type == "osee_gostream_deck"
     is_atem_4k8 = switcher_type in {"atem", "atem_television_studio_4k8"}
-    if not (is_osee or is_atem_4k8):
+    if not (is_osee or is_osee_deck or is_atem_4k8):
         return data
 
     migrated = dict(data)
@@ -133,7 +134,8 @@ def _apply_osee_duet_defaults(data: dict[str, Any], *, fill_unmapped_inputs: boo
     default_port = int(ptz.get("default_port") or 52381)
     cameras = list(ptz.get("cameras") or [])
     existing_camera_ids = {str(item.get("id")) for item in cameras if isinstance(item, dict)}
-    for number in range(1, 9):
+    camera_count = 4 if is_osee_deck else 8
+    for number in range(1, camera_count + 1):
         camera_id = f"cam{number}"
         if camera_id not in existing_camera_ids:
             cameras.append({
@@ -158,7 +160,8 @@ def _apply_osee_duet_defaults(data: dict[str, Any], *, fill_unmapped_inputs: boo
     mappings = list(sources.get("mappings") or [])
     mapping_by_source = {str(item.get("source_id")): item for item in mappings if isinstance(item, dict)}
     existing_source_ids = set(mapping_by_source)
-    for number in range(1, 9):
+    source_count = 4 if is_osee_deck else 8
+    for number in range(1, source_count + 1):
         source_id = f"Input {number}"
         if source_id not in existing_source_ids:
             mappings.append({
@@ -168,7 +171,12 @@ def _apply_osee_duet_defaults(data: dict[str, Any], *, fill_unmapped_inputs: boo
             })
         elif fill_unmapped_inputs and mapping_by_source[source_id].get("ptz_camera_id") is None:
             mapping_by_source[source_id]["ptz_camera_id"] = f"cam{number}"
-    extra_sources = ("MP1", "MP2", "M/SRC") if is_osee else ("Black", "MP1", "MP2", "SuperSource")
+    if is_osee:
+        extra_sources = ("MP1", "MP2", "M/SRC")
+    elif is_osee_deck:
+        extra_sources = ("AUX", "STILL1", "STILL2", "S/SRC")
+    else:
+        extra_sources = ("Black", "MP1", "MP2", "SuperSource")
     for source_id in extra_sources:
         if source_id not in existing_source_ids:
             mappings.append({"source_id": source_id, "display_name": source_id, "ptz_camera_id": None})
@@ -262,7 +270,7 @@ def load_config(path: str | Path, *, local_path: str | Path | None = None, use_l
     effective_probe = deep_merge_config(base_data, local_data) if local_data else base_data
     effective_switcher = effective_probe.get("switcher") if isinstance(effective_probe, dict) else None
     effective_type = str(effective_switcher.get("type", "")).lower() if isinstance(effective_switcher, dict) else ""
-    if effective_type in {"osee", "osee_gostream_duet"}:
+    if effective_type in {"osee", "osee_gostream_duet", "osee_gostream_deck"}:
         base_for_osee = deep_merge_config(base_data, {"switcher": {"type": effective_type}})
         base_data = _apply_osee_duet_defaults(base_for_osee, fill_unmapped_inputs=True)
 

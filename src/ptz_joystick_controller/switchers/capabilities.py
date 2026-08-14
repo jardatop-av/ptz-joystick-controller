@@ -50,11 +50,11 @@ def _vmix_sources(count: int = 100) -> tuple[Source, ...]:
 
 AVAILABLE_SOURCES_BY_SWITCHER: dict[SwitcherType, tuple[Source, ...]] = {
     SwitcherType.OSEE_GOSTREAM_DECK: (
-        *_camera_sources(4),
+        *_vmix_sources(4),
         _source("AUX", "AUX", SourceType.AUX),
         _source("STILL1", "STILL1", SourceType.STILL),
         _source("STILL2", "STILL2", SourceType.STILL),
-        _source("BLACK", "BLACK", SourceType.BLACK),
+        _source("S/SRC", "S/SRC", SourceType.INTERNAL),
     ),
     SwitcherType.OSEE_GOSTREAM_DUET: (
         *_vmix_sources(8),

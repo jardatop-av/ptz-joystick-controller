@@ -259,3 +259,35 @@ For a future production capability profile, the expected default PTZ mapping is
 Input 1→cam1 through Input 4→cam4. AUX must remain operator-configurable to any
 PTZ camera or None because it may represent a camera source. STILL1, STILL2 and
 S/SRC should default to no PTZ mapping. Stage58 does not implement any PTZ mapping.
+
+
+## Stage59 – production Osee GoStream Deck integration
+
+The verified Stage58 GoStream Deck GSP controller is now available as a distinct
+production switcher backend: `osee_gostream_deck`.
+
+Production logical sources are exactly:
+
+- Input 1
+- Input 2
+- Input 3
+- Input 4
+- AUX
+- STILL1
+- STILL2
+- S/SRC
+
+The GoStream Deck and GoStream Duet 8 ISO retain independent capability/source
+maps even though some native GSP numeric IDs overlap. The production Deck backend
+reuses the shared `OseeGspTransport` and the verified Stage58 Deck mapping/control
+layer for Preview, CUT, AUTO, Program/Preview feedback and Program-to-Preview.
+
+Default PTZ mappings are Input 1→cam1 through Input 4→cam4. AUX, STILL1, STILL2
+and S/SRC default to no PTZ mapping. The Config page exposes an explicit mapping
+selector for the Deck special sources; AUX can be mapped to any configured camera
+or None and is not hard-coded to cam5.
+
+Osee network discovery remains generic and read-only. It still sends only
+`pgmIndex`, `pvwIndex` and `transitionStatus` GSP GET requests and does not guess
+the specific Osee model when the protocol response does not identify it reliably.
+The Stage58 manual control probe remains available unchanged for hardware diagnostics.

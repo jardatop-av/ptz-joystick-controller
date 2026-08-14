@@ -20,6 +20,7 @@ from ptz_joystick_controller.switchers import (
     create_switcher,
 )
 from ptz_joystick_controller.switchers.http_client import HttpTransport
+from ptz_joystick_controller.switchers.osee_gsp import GspCommand
 
 
 @dataclass
@@ -86,20 +87,33 @@ def test_vmix_rejects_unsupported_source() -> None:
         switcher.set_preview_source("Input 101")
 
 
-def test_osee_backend_polls_json_status_and_sends_modular_payload() -> None:
-    transport = MockHttpTransport([ok('{"program":"CH1","preview":"CH2"}'), ok(), ok()])
-    switcher = OseeGoStreamDeckSwitcher(HttpClient("http://192.168.1.50", transport=transport))
+def test_osee_deck_backend_uses_verified_gsp_transport_and_logical_sources() -> None:
+    class FakeGsp:
+        connected = False
+        def __init__(self) -> None:
+            self.sent: list[GspCommand] = []
+        def connect(self) -> None: self.connected = True
+        def disconnect(self) -> None: self.connected = False
+        def send_command(self, command: GspCommand) -> bytes:
+            self.sent.append(command)
+            return b"x"
+        def send_get(self, command_id: str) -> bytes:
+            return self.send_command(GspCommand(id=command_id, type="get"))
+        def receive(self) -> tuple[GspCommand, ...]:
+            return ()
 
+    transport = FakeGsp()
+    switcher = OseeGoStreamDeckSwitcher("192.168.1.50", transport_factory=lambda _h, _p: transport)
     switcher.connect()
-    switcher.set_preview_source("CH3")
+    transport.sent.clear()
+    switcher.set_preview_source("Input 3")
     switcher.auto()
 
-    assert switcher.get_program_source() == "CH3"
-    assert switcher.get_preview_source() == "CH1"
-    assert transport.requests[0][1] == "http://192.168.1.50/api/status"
-    assert transport.requests[1][0] == "POST"
-    assert transport.requests[1][2] == b'{"command": "set_preview", "source": "CH3"}'
-    assert transport.requests[2][2] == b'{"command": "auto"}'
+    assert switcher.get_preview_source() == "Input 3"
+    assert transport.sent == [
+        GspCommand(id="pvwIndex", type="set", value=(3,)),
+        GspCommand(id="autoTransition", type="set"),
+    ]
 
 
 @dataclass
