@@ -458,6 +458,28 @@ class ConfigEditor:
             "local_config_path": str(self.local_config_path),
         }
 
+    def export_mapping(self) -> dict[str, Any]:
+        """Return the effective normal production configuration (never auth state)."""
+        base = load_yaml_file(self.example_config_path) if self.example_config_path.exists() else dump_config(self.current_config)
+        local = load_yaml_file(self.local_config_path) if self.local_config_path.exists() else {}
+        return deep_merge_config(base, local)
+
+    def validate_import_mapping(self, data: dict[str, Any]) -> ControllerConfig:
+        """Validate a complete imported YAML configuration without writing it."""
+        validate_enabled_ptz_camera_hosts_in_mapping(data)
+        try:
+            return parse_config(data)
+        except ConfigError as exc:
+            raise ConfigEditError(str(exc)) from exc
+
+    def import_mapping(self, data: dict[str, Any]) -> dict[str, Any]:
+        """Replace normal production config after validation, retaining .bak recovery."""
+        parsed = self.validate_import_mapping(data)
+        _backup_local_config(self.local_config_path)
+        atomic_write_text(self.local_config_path, yaml.safe_dump(data, sort_keys=False, allow_unicode=True))
+        self.current_config = parsed
+        return {"status": "saved", "message": "Imported configuration saved. Restart required."}
+
 
 def _strip_non_editable_metadata(raw_patch: dict[str, Any]) -> dict[str, Any]:
     data = dict(raw_patch)

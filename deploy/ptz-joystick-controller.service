@@ -1,0 +1,17 @@
+[Unit]
+Description=PTZ Joystick Controller
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ptz
+WorkingDirectory=/opt/ptz-joystick-controller
+ExecStart=/opt/ptz-joystick-controller/.venv/bin/python -m ptz_joystick_controller
+Restart=on-failure
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

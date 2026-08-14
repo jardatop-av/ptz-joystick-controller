@@ -10,12 +10,12 @@ from ..event_bus import Event, EventBus
 from ..joystick.calibration import JoystickCalibration
 from ..models.joystick_runtime import JoystickConnectionState, JoystickHealth
 from ..models.switcher import SwitcherConnectionState
-from ..runtime.ptz_router import PtzRouter
 from ..switchers.base import AbstractSwitcher
 from ..version import __version__
 from .config_runtime import RuntimeConfigApplyStatus
 
 if TYPE_CHECKING:
+    from ..runtime.ptz_router import PtzRouter
     from ..joystick.runtime import JoystickRuntimeMonitor
     from ..runtime.joystick_switcher_bridge import JoystickToSwitcherBridge
 
@@ -34,7 +34,7 @@ class RuntimeStatusProvider:
     joystick_health: JoystickHealth = field(default_factory=JoystickHealth)
     joystick_monitor: "JoystickRuntimeMonitor | None" = None
     switcher: AbstractSwitcher | None = None
-    ptz_router: PtzRouter | None = None
+    ptz_router: "PtzRouter | None" = None
     runtime_bridge: "JoystickToSwitcherBridge | None" = None
     config_apply_status: RuntimeConfigApplyStatus = field(default_factory=RuntimeConfigApplyStatus)
     started_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))

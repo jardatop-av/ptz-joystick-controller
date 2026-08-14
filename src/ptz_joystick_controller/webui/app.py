@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from html import escape
 import json
+from datetime import datetime
+import time
 from pathlib import Path
 from typing import Any
 
@@ -9,7 +11,7 @@ import yaml
 
 from fastapi import FastAPI, Request
 from fastapi.responses import RedirectResponse
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 
 from .config_editor import ConfigEditError, ConfigEditor
 from .config_runtime import RuntimeConfigApplier
@@ -201,7 +203,7 @@ async function refresh() {{
     const subtitle = byId('subtitle'); if (subtitle) subtitle.textContent = `${{s.system.stage}} / ${{s.system.version}} / uptime ${{seconds(s.uptime)}}`;
     setList('system', [dtdd('Application', s.system.application_name), dtdd('Version', s.system.version), dtdd('Stage', s.system.stage), dtdd('Uptime', seconds(s.uptime))]);
     setList('joystick', [dtdd('Status', boolBadge(s.joystick.connected)), dtdd('Device', s.joystick.device_name), dtdd('Buttons', (s.joystick.pressed_buttons || []).join(', ') || 'none'), dtdd('Hat', `${{s.joystick.hat.direction}} (${{s.joystick.hat.x}}, ${{s.joystick.hat.y}})`), dtdd('Pan/Tilt/Zoom', `${{s.joystick.normalized_axes.pan}} / ${{s.joystick.normalized_axes.tilt}} / ${{s.joystick.normalized_axes.zoom}}`)]);
-    setList('switcher', [dtdd('Status', boolBadge(s.switcher.connected)), dtdd('Type', s.switcher.type), dtdd('Program', s.program), dtdd('Preview', s.preview), dtdd('Transition', JSON.stringify(s.transition ?? null))]);
+    setList('switcher', [dtdd('Status', boolBadge(s.switcher.connected)), dtdd('Type', s.switcher.type), dtdd('Program', s.program), dtdd('Preview', s.preview), dtdd('Transition', s.transition ?? '—')]);
     setList('ptz', [dtdd('Active camera', s.active_ptz_camera), dtdd('Moving', s.ptz.moving), dtdd('Pan/Tilt active', s.ptz.pan_tilt_active), dtdd('Zoom active', s.ptz.zoom_active), dtdd('Hat active', s.ptz.hat_active), dtdd('Last action', s.ptz.last_action)]);
     setList('safety', [dtdd('Watchdog', s.safety.watchdog_enabled), dtdd('Center samples', s.safety.center_confirm_samples), dtdd('Output deadzone', `pan/tilt=${{s.safety.output_deadzone.pan_tilt}}, zoom=${{s.safety.output_deadzone.zoom}}`)]);
     setList('config', [dtdd('Loaded at', s.config?.loaded_at), dtdd('Pending changes', s.config?.pending_changes), dtdd('Last apply', s.config?.last_apply_result || 'none'), dtdd('Last error', s.config?.last_apply_error || '')]);
@@ -575,6 +577,18 @@ def render_config_html(config_editor: ConfigEditor, *, message: str = "", csrf_t
   <small>Any password string is accepted. Changing the password signs out all sessions.</small>
 </fieldset>
 
+<h2>Configuration Backup / Restore</h2>
+<fieldset>
+  <legend>Backup / Restore</legend>
+  <p><a href="/config/export">Export current configuration</a></p>
+  <form method="post" action="/config/import/validate" enctype="multipart/form-data">
+    <input type="hidden" name="csrf_token" value="{escape(csrf_token)}">
+    <label>Configuration YAML <input type="file" name="config_file" accept=".yaml,.yml,text/yaml"></label>
+    <button type="submit">Upload and validate</button>
+  </form>
+  <small>Authentication credentials and session data are never included in configuration exports.</small>
+</fieldset>
+
 <details id="advanced-yaml-panel" class="discovery-panel advanced-yaml-panel">
   <summary>Advanced YAML editor <span id="advanced-yaml-unsaved" class="unsaved-indicator" role="status">Unsaved changes</span></summary>
   <div class="discovery-body">
@@ -828,6 +842,9 @@ def create_web_app(
     status_provider.config_apply_status = config_applier.status
     discovery_manager = discovery_manager or DiscoveryJobManager()
     app.state.discovery_manager = discovery_manager
+    pending_imports: dict[str, dict[str, Any]] = {}
+    IMPORT_LIMIT = 1024 * 1024
+    IMPORT_TTL = 10 * 60
 
     auth_store = AuthStore(auth_file_path)
     sessions = SessionManager(session_lifetime_seconds)
@@ -1060,6 +1077,82 @@ def create_web_app(
     def api_discovery_cancel(job_id: str) -> JSONResponse:
         job = discovery_manager.cancel(job_id)
         return JSONResponse(job.payload()) if job is not None else JSONResponse({"status": "error", "error": "Discovery job not found"}, status_code=404)
+
+    def import_scope(request: Request) -> str:
+        session = current_session(request)
+        if session is not None:
+            return session.token
+        if authentication_disabled():
+            return "auth-disabled:" + source_ip(request)
+        return "no-auth:" + source_ip(request)
+
+    def cleanup_pending_imports() -> None:
+        now = time.monotonic()
+        for token, item in list(pending_imports.items()):
+            if item["expires"] <= now:
+                pending_imports.pop(token, None)
+
+    @app.get("/config/export")
+    def export_config(request: Request) -> Response:
+        data = config_editor.export_mapping()
+        body = yaml.safe_dump(data, sort_keys=False, allow_unicode=True)
+        filename = f"ptz-joystick-controller-config-{datetime.now().strftime('%Y-%m-%d-%H%M')}.yaml"
+        return Response(body, media_type="application/yaml", headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+
+    @app.post("/config/import/validate", response_class=HTMLResponse)
+    async def validate_import(request: Request):
+        if not await require_csrf(request):
+            return JSONResponse({"status": "error", "error": "Invalid CSRF token"}, status_code=403)
+        form = await request.form()
+        upload = form.get("config_file")
+        if upload is None or not hasattr(upload, "read"):
+            return HTMLResponse("Missing configuration file", status_code=400)
+        raw = await upload.read(IMPORT_LIMIT + 1)
+        if len(raw) > IMPORT_LIMIT:
+            return HTMLResponse("Configuration upload exceeds 1 MiB limit", status_code=413)
+        try:
+            text = raw.decode("utf-8")
+            data = yaml.safe_load(text) or {}
+            if not isinstance(data, dict):
+                raise ConfigEditError("Config root must be a mapping")
+            config_editor.validate_import_mapping(data)
+        except (UnicodeDecodeError, yaml.YAMLError, ConfigEditError, ConfigError) as exc:
+            return HTMLResponse(f"Configuration import validation failed: {escape(str(exc))}", status_code=400)
+        cleanup_pending_imports()
+        token = secrets.token_urlsafe(32)
+        pending_imports[token] = {"scope": import_scope(request), "data": data, "expires": time.monotonic() + IMPORT_TTL}
+        html = ("<!doctype html><html><body><h1>Confirm configuration import</h1>"
+                "<p>Validation succeeded. Upload has not changed the production configuration.</p>"
+                '<form method="post" action="/config/import/confirm">'
+                f'<input type="hidden" name="csrf_token" value="{escape(csrf_for(request))}">'
+                f'<input type="hidden" name="import_token" value="{escape(token)}">'
+                '<button type="submit" name="apply" value="0">Import / Save</button>'
+                '<button type="submit" name="apply" value="1">Import / Save and Apply</button>'
+                "</form></body></html>")
+        return HTMLResponse(html)
+
+    @app.post("/config/import/confirm")
+    async def confirm_import(request: Request):
+        if not await require_csrf(request):
+            return JSONResponse({"status": "error", "error": "Invalid CSRF token"}, status_code=403)
+        form = await request.form()
+        token = str(form.get("import_token", ""))
+        cleanup_pending_imports()
+        item = pending_imports.get(token)
+        if item is None or item["scope"] != import_scope(request):
+            return HTMLResponse("Pending import is missing, expired, or belongs to another session.", status_code=400)
+        pending_imports.pop(token, None)
+        try:
+            result = config_editor.import_mapping(item["data"])
+            if str(form.get("apply", "0")) == "1":
+                apply_result = config_applier.apply_from_disk()
+                config_editor.current_config = status_provider.state.config
+                message = str(apply_result["message"])
+            else:
+                message = result["message"]
+            return HTMLResponse(render_config_html(config_editor, message=message, csrf_token=csrf_for(request), authentication_disabled=authentication_disabled()).replace("__CSRF_TOKEN__", escape(csrf_for(request))).replace("__LOGOUT_CONTROL__", logout_control(request)))
+        except (ConfigEditError, ConfigError) as exc:
+            return HTMLResponse(f"Configuration import failed: {escape(str(exc))}", status_code=400)
 
     @app.get("/config", response_class=HTMLResponse)
     def config_page(request: Request) -> HTMLResponse:

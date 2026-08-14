@@ -2,7 +2,7 @@ app:
   name: PTZ Joystick Controller
   device_name: ptz-controller-01
   log_level: info
-  web_port: 8080
+  web_port: 80
   auto_load_last_preset: true
 switcher:
   type: vmix
@@ -255,6 +255,6 @@ discovery:
 webui:
   enabled: false
   listen_host: 0.0.0.0
-  listen_port: 8080
+  listen_port: 80
   websocket_updates: false
   emergency_controls: false

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 APP_NAME = "PTZ Joystick Controller"
-DEFAULT_WEB_PORT = 8080
+DEFAULT_WEB_PORT = 80
 DEFAULT_VISCA_PORT = 52381
 
 SUPPORTED_SWITCHERS = {

@@ -317,3 +317,13 @@ The required protocol behaviour/source IDs came from prior real-hardware testing
 of an ATEM Mini Pro at 192.168.1.181:9910 (discovery reported
 `ATEM Mini Pro | Protocol 2.31`). This Stage60 implementation run did not itself
 perform real-hardware verification.
+
+## Stage61 — Web port 80, configuration backup/restore, metadata
+
+The production Web GUI now defaults to `http://<controller-ip>/` on TCP port 80. `webui.listen_port` remains configurable, so an explicit value such as 8080 is still respected. The supplied systemd unit grants only `CAP_NET_BIND_SERVICE` to the existing non-root service process; it does not run Python as root and does not set capabilities on the interpreter.
+
+Config now includes **Configuration Backup / Restore**. Export downloads the effective normal YAML production configuration and deliberately excludes `config.auth.yaml`, password hashes, session data and CSRF/login state. Import is two-step: upload + normal parser validation first, then an explicit Import/Save or Import/Save and Apply confirmation. Uploads are limited to 1 MiB, pending imports use random expiring tokens scoped to the current authenticated session (or client scope in intentional authentication-disabled mode), and `config.local.yaml.bak` is created before replacement.
+
+Dashboard metadata is centralized in `ptz_joystick_controller/version.py` and now reports application version `0.10.0` and `Stage61`. Transition state is rendered as plain text (`idle`) rather than JSON-quoted text.
+
+After deployment on Raspberry Pi, install/update `deploy/ptz-joystick-controller.service`, run `sudo systemctl daemon-reload`, then restart the service. If another process already owns TCP/80, the controller will fail to bind rather than silently choosing another port.
