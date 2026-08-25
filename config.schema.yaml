@@ -14,7 +14,7 @@ $defs:
         title: Log Level
         type: string
       web_port:
-        default: 8080
+        default: 80
         maximum: 65535
         minimum: 1
         title: Web Port
@@ -479,7 +479,7 @@ $defs:
         title: Listen Host
         type: string
       listen_port:
-        default: 8080
+        default: 80
         maximum: 65535
         minimum: 1
         title: Listen Port

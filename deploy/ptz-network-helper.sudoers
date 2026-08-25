@@ -1,0 +1,2 @@
+# Stage62: allow only the fixed PTZ NetworkManager helper as root; request data is validated on stdin.
+pi ALL=(root) NOPASSWD: /usr/local/libexec/ptz-network-helper

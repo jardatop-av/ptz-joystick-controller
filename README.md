@@ -324,6 +324,63 @@ The production Web GUI now defaults to `http://<controller-ip>/` on TCP port 80.
 
 Config now includes **Configuration Backup / Restore**. Export downloads the effective normal YAML production configuration and deliberately excludes `config.auth.yaml`, password hashes, session data and CSRF/login state. Import is two-step: upload + normal parser validation first, then an explicit Import/Save or Import/Save and Apply confirmation. Uploads are limited to 1 MiB, pending imports use random expiring tokens scoped to the current authenticated session (or client scope in intentional authentication-disabled mode), and `config.local.yaml.bak` is created before replacement.
 
-Dashboard metadata is centralized in `ptz_joystick_controller/version.py` and now reports application version `0.10.0` and `Stage61`. Transition state is rendered as plain text (`idle`) rather than JSON-quoted text.
+Dashboard metadata is centralized in `ptz_joystick_controller/version.py` and reported application version `0.10.0` and `Stage61` at that stage. Transition state is rendered as plain text (`idle`) rather than JSON-quoted text.
 
 After deployment on Raspberry Pi, install/update `deploy/ptz-joystick-controller.service`, run `sudo systemctl daemon-reload`, then restart the service. If another process already owns TCP/80, the controller will fail to bind rather than silently choosing another port.
+
+## Stage62 — NetworkManager DHCP / Static IPv4 management
+
+The Config page now includes **Network / IPv4**. Its status is read from the
+actual NetworkManager state for the configured management interface (default
+`eth0`), including link state, active NetworkManager profile, IPv4 address and
+prefix, gateway, DNS and DHCP/static method. NetworkManager is the only Stage62
+backend; this feature does not use `dhcpcd`, `/etc/network/interfaces`,
+`systemd-networkd`, Wi-Fi, VLANs or IPv6.
+
+Static mode validates the host address, prefix (or contiguous dotted netmask),
+gateway and DNS before any privileged operation. Network/broadcast host addresses,
+`0.0.0.0`, invalid DNS and an out-of-subnet gateway are rejected. DHCP mode sets
+`ipv4.method auto` and clears stale manual address, gateway and DNS values.
+
+Network changes use a two-step **Review → Confirm and apply** workflow because
+changing the address can disconnect the browser. For a static address the review
+shows the expected Web GUI URL using the actual `webui.listen_port`; for DHCP it
+explicitly states that the future lease/address cannot be predicted.
+
+### Privilege separation and deployment
+
+The main controller remains the existing non-root systemd service. Port 80 still
+uses only `CAP_NET_BIND_SERVICE`. Network changes are delegated to the fixed
+root helper `deploy/ptz-network-helper.py`, installed as
+`/usr/local/libexec/ptz-network-helper`. The helper reads a constrained JSON
+request on stdin, revalidates it, and invokes `nmcli` only with fixed argument
+arrays (never `shell=True`). `deploy/ptz-network-helper.sudoers` permits the
+service account (`pi` in the verified production environment) to execute only that helper with no command-line arguments; it
+does not grant general sudo or arbitrary `nmcli` access.
+
+Install/update Stage62 privileged artifacts explicitly:
+
+    sudo install -o root -g root -m 0755 deploy/ptz-network-helper.py /usr/local/libexec/ptz-network-helper
+    sudo install -o root -g root -m 0440 deploy/ptz-network-helper.sudoers /etc/sudoers.d/ptz-network-helper
+    sudo visudo -cf /etc/sudoers.d/ptz-network-helper
+    sudo install -o root -g root -m 0644 deploy/ptz-joystick-controller.service /etc/systemd/system/ptz-joystick-controller.service
+    sudo systemctl daemon-reload
+    sudo systemctl restart ptz-joystick-controller
+
+Before every successful DHCP/static modification the helper writes the previous
+NetworkManager IPv4 settings to
+`/var/lib/ptz-joystick-controller/network-backup.json` with restrictive
+permissions. This is separate from `config.local.yaml.bak`. From SSH or a local
+console, restore the last network state with:
+
+    python scripts/restore_network_config.py --interface eth0
+
+(or equivalently run the installed helper with the documented restore operation).
+There is deliberately no timer-based automatic rollback.
+
+The actual Web server listen port remains authoritative at `webui.listen_port`
+(default 80). Investigation in Stage62 found no runtime consumer of legacy
+`app.web_port`; the field is retained only for compatibility with older YAML and
+must not be interpreted as the Web server port. Dashboard metadata is `Stage62`;
+the stable application version source is `0.11.0` and Stage62 does not create a
+new release/tag.

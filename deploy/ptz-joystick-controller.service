@@ -5,7 +5,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=ptz
+User=pi
 WorkingDirectory=/opt/ptz-joystick-controller
 ExecStart=/opt/ptz-joystick-controller/.venv/bin/python -m ptz_joystick_controller
 Restart=on-failure

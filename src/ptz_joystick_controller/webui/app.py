@@ -17,6 +17,7 @@ from .config_editor import ConfigEditError, ConfigEditor
 from .config_runtime import RuntimeConfigApplier
 from .discovery_panel import DiscoveryJobManager
 from ..config import ConfigError
+from ..network_manager import NetworkManagerBackend, NetworkManagerError, validate_static
 from ..joystick.button_metadata import CANONICAL_BUTTON_IDS, ButtonMetadataRegistry
 from ..models.joystick import ButtonAction
 from .status import RuntimeStatusProvider
@@ -337,7 +338,7 @@ def _source_select_options(source_options: list[str], current: object) -> str:
     )
 
 
-def render_config_html(config_editor: ConfigEditor, *, message: str = "", csrf_token: str = "", authentication_disabled: bool = False) -> str:
+def render_config_html(config_editor: ConfigEditor, *, message: str = "", csrf_token: str = "", authentication_disabled: bool = False, network_backend: NetworkManagerBackend | None = None) -> str:
     payload = config_editor.editable_payload()
     registry = ButtonMetadataRegistry(getattr(config_editor.current_config.joystick, "button_labels", {}))
     switcher = payload["switcher"]
@@ -420,6 +421,42 @@ def render_config_html(config_editor: ConfigEditor, *, message: str = "", csrf_t
             f"<tbody>{''.join(rows)}</tbody></table></fieldset>"
         )
 
+    try:
+        ns = network_backend.read_state() if network_backend else None
+        network_error = ""
+    except NetworkManagerError as exc:
+        ns = None
+        network_error = str(exc)
+    if ns:
+        dns_text = ", ".join(ns.dns) or "—"
+        network_status_html = (
+            f"<dl><dt>Interface</dt><dd>{escape(ns.interface)}</dd><dt>Status</dt><dd>{'Connected' if ns.connected else 'Disconnected'}</dd>"
+            f"<dt>IPv4 mode</dt><dd>{escape((ns.mode or 'unknown').upper())}</dd><dt>IPv4 address</dt><dd>{escape(ns.address or '—')}</dd>"
+            f"<dt>Prefix</dt><dd>{('/' + str(ns.prefix)) if ns.prefix is not None else '—'}</dd><dt>Gateway</dt><dd>{escape(ns.gateway or '—')}</dd>"
+            f"<dt>DNS</dt><dd>{escape(dns_text)}</dd><dt>NM connection</dt><dd>{escape(ns.connection or '—')}</dd></dl>"
+        )
+        current_addr = ns.address or ""
+        current_mode = ns.mode or "dhcp"
+    else:
+        network_status_html = f'<p class="bad">NetworkManager status unavailable: {escape(network_error or "not configured")}</p>'
+        current_addr = ""; current_mode = "dhcp"
+    network_section = f"""
+<h2>Network / IPv4</h2>
+<fieldset id="network-config">
+  <legend>Network configuration</legend>
+  <p>Current state is read directly from NetworkManager.</p>{network_status_html}
+  <form method="post" action="/config/network/validate" id="network-form">
+    <input type="hidden" name="csrf_token" value="{escape(csrf_token)}">
+    <label>IPv4 mode <select name="mode" id="network-mode"><option value="dhcp"{' selected' if current_mode=='dhcp' else ''}>DHCP</option><option value="static"{' selected' if current_mode=='static' else ''}>Static</option></select></label>
+    <span id="network-static-fields">
+      <label>IP address <input name="address"></label><label>Prefix / mask <input name="prefix" placeholder="24 or 255.255.255.0"></label>
+      <label>Default gateway <input name="gateway"></label><label>DNS 1 <input name="dns1"></label><label>DNS 2 (optional) <input name="dns2"></label>
+    </span>
+    <button type="submit">Review network change</button>
+  </form>
+  <small>Applying a network change may disconnect this browser. NetworkManager is the only Stage62 backend.</small>
+</fieldset>
+"""
     status_message = message or "Basic form saves only to config.local.yaml. Use Save and apply to update the running process."
     return f"""<!doctype html>
 <html lang="en" data-theme="dark">
@@ -563,6 +600,8 @@ def render_config_html(config_editor: ConfigEditor, *, message: str = "", csrf_t
   </div>
 </form>
 
+{network_section}
+
 <h2>Security</h2>
 <fieldset>
   <legend>Admin password</legend>
@@ -601,6 +640,7 @@ def render_config_html(config_editor: ConfigEditor, *, message: str = "", csrf_t
   </div>
 </details>
 <script>
+(function(){{ const mode=document.getElementById('network-mode'), fields=document.getElementById('network-static-fields'); if(!mode||!fields)return; const update=()=>{{fields.hidden=mode.value!=='static';}}; mode.addEventListener('change',update); update(); }})();
 const sourceOptionsBySwitcher = {json.dumps(source_options_by_switcher, ensure_ascii=False)};
 const switcherType = document.getElementById('switcher-type');
 const switcherPort = document.getElementById('switcher-port');
@@ -827,6 +867,7 @@ def create_web_app(
     auth_file_path: str | Path = "config.auth.yaml",
     auth_enabled: bool = False,
     session_lifetime_seconds: float = 24 * 60 * 60,
+    network_backend: NetworkManagerBackend | None = None,
 ) -> FastAPI:
     app = FastAPI(title="PTZ Joystick Controller")
     config_editor = ConfigEditor(
@@ -843,6 +884,8 @@ def create_web_app(
     discovery_manager = discovery_manager or DiscoveryJobManager()
     app.state.discovery_manager = discovery_manager
     pending_imports: dict[str, dict[str, Any]] = {}
+    pending_network: dict[str, dict[str, Any]] = {}
+    network_backend = network_backend or NetworkManagerBackend(status_provider.state.config.network.interface)
     IMPORT_LIMIT = 1024 * 1024
     IMPORT_TTL = 10 * 60
 
@@ -1013,13 +1056,13 @@ def create_web_app(
         new = str(form.get("new_password", ""))
         confirm = str(form.get("confirm_password", ""))
         if not auth_store.verify(current):
-            return HTMLResponse(render_config_html(config_editor, message="Current password is incorrect.", csrf_token=csrf_for(request), authentication_disabled=authentication_disabled()).replace("__CSRF_TOKEN__", escape(csrf_for(request))).replace("__LOGOUT_CONTROL__", logout_control(request)), status_code=400)
+            return HTMLResponse(render_config_html(config_editor, message="Current password is incorrect.", csrf_token=csrf_for(request), authentication_disabled=authentication_disabled(), network_backend=network_backend).replace("__CSRF_TOKEN__", escape(csrf_for(request))).replace("__LOGOUT_CONTROL__", logout_control(request)), status_code=400)
         if new != confirm:
-            return HTMLResponse(render_config_html(config_editor, message="New passwords do not match.", csrf_token=csrf_for(request), authentication_disabled=authentication_disabled()).replace("__CSRF_TOKEN__", escape(csrf_for(request))).replace("__LOGOUT_CONTROL__", logout_control(request)), status_code=400)
+            return HTMLResponse(render_config_html(config_editor, message="New passwords do not match.", csrf_token=csrf_for(request), authentication_disabled=authentication_disabled(), network_backend=network_backend).replace("__CSRF_TOKEN__", escape(csrf_for(request))).replace("__LOGOUT_CONTROL__", logout_control(request)), status_code=400)
         try:
             auth_store.set_password(new)
         except AuthError as exc:
-            return HTMLResponse(render_config_html(config_editor, message=str(exc), csrf_token=csrf_for(request), authentication_disabled=authentication_disabled()).replace("__CSRF_TOKEN__", escape(csrf_for(request))).replace("__LOGOUT_CONTROL__", logout_control(request)), status_code=400)
+            return HTMLResponse(render_config_html(config_editor, message=str(exc), csrf_token=csrf_for(request), authentication_disabled=authentication_disabled(), network_backend=network_backend).replace("__CSRF_TOKEN__", escape(csrf_for(request))).replace("__LOGOUT_CONTROL__", logout_control(request)), status_code=400)
         sessions.invalidate_all()
         LOGGER.info("Admin password changed source_ip=%s auth_disabled=%s", source_ip(request), auth_store.authentication_disabled)
         response = RedirectResponse("/config" if auth_store.authentication_disabled else "/login", status_code=303)
@@ -1150,9 +1193,47 @@ def create_web_app(
                 message = str(apply_result["message"])
             else:
                 message = result["message"]
-            return HTMLResponse(render_config_html(config_editor, message=message, csrf_token=csrf_for(request), authentication_disabled=authentication_disabled()).replace("__CSRF_TOKEN__", escape(csrf_for(request))).replace("__LOGOUT_CONTROL__", logout_control(request)))
+            return HTMLResponse(render_config_html(config_editor, message=message, csrf_token=csrf_for(request), authentication_disabled=authentication_disabled(), network_backend=network_backend).replace("__CSRF_TOKEN__", escape(csrf_for(request))).replace("__LOGOUT_CONTROL__", logout_control(request)))
         except (ConfigEditError, ConfigError) as exc:
             return HTMLResponse(f"Configuration import failed: {escape(str(exc))}", status_code=400)
+
+    @app.post("/config/network/validate", response_class=HTMLResponse)
+    async def validate_network_change(request: Request):
+        if not await require_csrf(request):
+            return JSONResponse({"status":"error","error":"Invalid CSRF token"}, status_code=403)
+        form = await request.form(); mode=str(form.get("mode","dhcp")).lower()
+        if mode not in {"dhcp","static"}: return HTMLResponse("Invalid IPv4 mode", status_code=400)
+        try:
+            state=network_backend.read_state()
+            if mode == "static":
+                cfg=validate_static(str(form.get("address","")), str(form.get("prefix","")), str(form.get("gateway","")), str(form.get("dns1","")), str(form.get("dns2","")))
+                payload={"mode":"static","config":cfg}
+                port=status_provider.state.config.webui.listen_port
+                url=f"http://{cfg.address}/" if port==80 else f"http://{cfg.address}:{port}/"
+                details=f"<p>Current address: <b>{escape(state.address or '—')}</b></p><p>New address: <b>{escape(cfg.address)}/{cfg.prefix}</b></p><p>Gateway: {escape(cfg.gateway)}</p><p>DNS: {escape(', '.join(cfg.dns))}</p><p>After apply, try: <b>{escape(url)}</b></p>"
+            else:
+                payload={"mode":"dhcp"}; details=f"<p>Current address: <b>{escape(state.address or '—')}</b></p><p>The future DHCP address cannot be predicted.</p>"
+        except (ValueError, NetworkManagerError) as exc:
+            return HTMLResponse(f"Network validation failed: {escape(str(exc))}", status_code=400)
+        token=secrets.token_urlsafe(32); pending_network[token]={"scope":import_scope(request),"payload":payload,"expires":time.monotonic()+300}
+        html=("<!doctype html><html><body><h1>Confirm network change</h1>"+details+"<p><strong>Applying this configuration may disconnect this browser session.</strong></p>"+
+              f'<form method="post" action="/config/network/apply"><input type="hidden" name="csrf_token" value="{escape(csrf_for(request))}"><input type="hidden" name="network_token" value="{escape(token)}"><button type="submit">Confirm and apply</button></form><p><a href="/config">Cancel</a></p></body></html>')
+        return HTMLResponse(html)
+
+    @app.post("/config/network/apply", response_class=HTMLResponse)
+    async def apply_network_change(request: Request):
+        if not await require_csrf(request):
+            return JSONResponse({"status":"error","error":"Invalid CSRF token"}, status_code=403)
+        form=await request.form(); token=str(form.get("network_token","")); item=pending_network.pop(token,None)
+        if not item or item["expires"] < time.monotonic() or item["scope"] != import_scope(request):
+            return HTMLResponse("Pending network change is missing, expired, or belongs to another session.", status_code=400)
+        try:
+            payload=item["payload"]
+            if payload["mode"]=="dhcp": network_backend.apply_dhcp()
+            else: network_backend.apply_static(payload["config"])
+        except NetworkManagerError as exc:
+            return HTMLResponse(f"Network apply failed: {escape(str(exc))}", status_code=500)
+        return HTMLResponse("Network configuration applied. This browser may disconnect while NetworkManager activates the connection.")
 
     @app.get("/config", response_class=HTMLResponse)
     def config_page(request: Request) -> HTMLResponse:
@@ -1160,7 +1241,7 @@ def create_web_app(
             render_config_html(
                 config_editor,
                 csrf_token=csrf_for(request),
-                authentication_disabled=authentication_disabled(),
+                authentication_disabled=authentication_disabled(), network_backend=network_backend,
             ),
             request,
         )
@@ -1182,12 +1263,12 @@ def create_web_app(
             if str(form.get("apply", "0")) == "1":
                 apply_result = config_applier.apply_from_disk()
                 config_editor.current_config = status_provider.state.config
-                return HTMLResponse(render_config_html(config_editor, message=str(apply_result["message"]), csrf_token=csrf_for(request), authentication_disabled=authentication_disabled()).replace("__CSRF_TOKEN__", escape(csrf_for(request))).replace("__LOGOUT_CONTROL__", logout_control(request)))
-            return HTMLResponse(render_config_html(config_editor, message=result["message"], csrf_token=csrf_for(request), authentication_disabled=authentication_disabled()).replace("__CSRF_TOKEN__", escape(csrf_for(request))).replace("__LOGOUT_CONTROL__", logout_control(request)))
+                return HTMLResponse(render_config_html(config_editor, message=str(apply_result["message"]), csrf_token=csrf_for(request), authentication_disabled=authentication_disabled(), network_backend=network_backend).replace("__CSRF_TOKEN__", escape(csrf_for(request))).replace("__LOGOUT_CONTROL__", logout_control(request)))
+            return HTMLResponse(render_config_html(config_editor, message=result["message"], csrf_token=csrf_for(request), authentication_disabled=authentication_disabled(), network_backend=network_backend).replace("__CSRF_TOKEN__", escape(csrf_for(request))).replace("__LOGOUT_CONTROL__", logout_control(request)))
         except (ConfigEditError, ConfigError) as exc:
             if request.headers.get("content-type", "").startswith("application/json"):
                 return JSONResponse({"status": "error", "error": str(exc), "message": str(exc)}, status_code=400)
-            return HTMLResponse(render_config_html(config_editor, message=str(exc), csrf_token=csrf_for(request), authentication_disabled=authentication_disabled()).replace("__CSRF_TOKEN__", escape(csrf_for(request))).replace("__LOGOUT_CONTROL__", logout_control(request)), status_code=400)
+            return HTMLResponse(render_config_html(config_editor, message=str(exc), csrf_token=csrf_for(request), authentication_disabled=authentication_disabled(), network_backend=network_backend).replace("__CSRF_TOKEN__", escape(csrf_for(request))).replace("__LOGOUT_CONTROL__", logout_control(request)), status_code=400)
 
     @app.post("/config/raw")
     async def save_raw_config(request: Request):
@@ -1210,12 +1291,12 @@ def create_web_app(
             if str(form.get("apply", "0")) == "1":
                 apply_result = config_applier.apply_from_disk()
                 config_editor.current_config = status_provider.state.config
-                return HTMLResponse(render_config_html(config_editor, message=str(apply_result["message"]), csrf_token=csrf_for(request), authentication_disabled=authentication_disabled()).replace("__CSRF_TOKEN__", escape(csrf_for(request))).replace("__LOGOUT_CONTROL__", logout_control(request)))
-            return HTMLResponse(render_config_html(config_editor, message=result["message"], csrf_token=csrf_for(request), authentication_disabled=authentication_disabled()).replace("__CSRF_TOKEN__", escape(csrf_for(request))).replace("__LOGOUT_CONTROL__", logout_control(request)))
+                return HTMLResponse(render_config_html(config_editor, message=str(apply_result["message"]), csrf_token=csrf_for(request), authentication_disabled=authentication_disabled(), network_backend=network_backend).replace("__CSRF_TOKEN__", escape(csrf_for(request))).replace("__LOGOUT_CONTROL__", logout_control(request)))
+            return HTMLResponse(render_config_html(config_editor, message=result["message"], csrf_token=csrf_for(request), authentication_disabled=authentication_disabled(), network_backend=network_backend).replace("__CSRF_TOKEN__", escape(csrf_for(request))).replace("__LOGOUT_CONTROL__", logout_control(request)))
         except (ConfigEditError, ConfigError, yaml.YAMLError) as exc:
             if request.headers.get("content-type", "").startswith("application/json"):
                 return JSONResponse({"status": "error", "error": str(exc), "message": str(exc)}, status_code=400)
-            return HTMLResponse(render_config_html(config_editor, message=str(exc), csrf_token=csrf_for(request), authentication_disabled=authentication_disabled()).replace("__CSRF_TOKEN__", escape(csrf_for(request))).replace("__LOGOUT_CONTROL__", logout_control(request)), status_code=400)
+            return HTMLResponse(render_config_html(config_editor, message=str(exc), csrf_token=csrf_for(request), authentication_disabled=authentication_disabled(), network_backend=network_backend).replace("__CSRF_TOKEN__", escape(csrf_for(request))).replace("__LOGOUT_CONTROL__", logout_control(request)), status_code=400)
 
     @app.post("/config")
     async def save_config(request: Request) -> JSONResponse:

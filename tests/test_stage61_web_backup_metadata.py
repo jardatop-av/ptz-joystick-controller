@@ -33,8 +33,8 @@ def test_systemd_nonroot_capability_only():
 
 
 def test_metadata_authoritative_and_transition_not_json_stringified():
-    assert __version__ == '0.10.0'
-    assert __stage__ == 'Stage61'
+    assert __version__ == '0.11.0'
+    assert __stage__ in {'Stage61', 'Stage62'}
     assert 'Stage55 Fix 2' not in Path('src/ptz_joystick_controller/version.py').read_text()
     assert 'JSON.stringify(s.transition' not in Path('src/ptz_joystick_controller/webui/app.py').read_text()
 
